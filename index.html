@@ -1,0 +1,2822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TERRAFORMER</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --bg: #020608;
+    --grid: #0a1a1f;
+    --accent: #00f5c4;
+    --accent2: #ff3e6c;
+    --accent3: #f5c400;
+    --dim: #1a3a40;
+    --text: #c8f0e8;
+    --muted: #3a6a70;
+    --road: #00c4ff;
+    --building: #00f5c4;
+    --water: #0055aa;
+    --park: #00aa55;
+    --glass: rgba(0,20,25,0.85);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  #canvas-container {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+  }
+
+  canvas { display: block; }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.07) 2px,
+      rgba(0,0,0,0.07) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  /* Corner brackets */
+  .corner {
+    position: fixed;
+    width: 40px;
+    height: 40px;
+    z-index: 200;
+    pointer-events: none;
+  }
+  .corner::before, .corner::after {
+    content: '';
+    position: absolute;
+    background: var(--accent);
+  }
+  .corner::before { width: 2px; height: 100%; }
+  .corner::after { width: 100%; height: 2px; }
+  .corner.tl { top: 12px; left: 12px; }
+  .corner.tr { top: 12px; right: 12px; transform: rotate(90deg); }
+  .corner.bl { bottom: 12px; left: 12px; transform: rotate(-90deg); }
+  .corner.br { bottom: 12px; right: 12px; transform: rotate(180deg); }
+
+  /* Header */
+  #header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 14px 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 150;
+    background: linear-gradient(to bottom, rgba(2,6,8,0.95), transparent);
+  }
+
+  #logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 1.1rem;
+    letter-spacing: 0.4em;
+    color: var(--accent);
+    text-shadow: 0 0 20px var(--accent);
+  }
+
+  #logo span { color: var(--muted); font-weight: 400; }
+
+  #coords-display {
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-align: center;
+  }
+  #coords-display strong { color: var(--accent3); display: block; font-size: 0.8rem; }
+
+  #status-bar {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-align: right;
+  }
+  .status-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 6px;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%,100% { opacity: 1; box-shadow: 0 0 6px var(--accent); }
+    50% { opacity: 0.3; box-shadow: none; }
+  }
+
+  /* Controls panel */
+  #controls { display: none !important; }
+  #controls.tron-hidden { display: none !important; }
+  /* ── ROUND TIMER ── */
+  #round-timer {
+    position: absolute;
+    top: 58px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+    transition: opacity 0.3s;
+    background: rgba(2,6,8,0.55);
+    border: 1px solid var(--dim);
+    border-radius: 4px;
+    padding: 5px 12px;
+  }
+  #timer-bar-wrap {
+    width: 120px;
+    height: 3px;
+    background: #1a3a40;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  #timer-bar {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #00f5c4, #f5c400);
+    border-radius: 2px;
+    transition: background 0.5s;
+    transform-origin: left;
+  }
+  #timer-digits {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent3);
+    text-shadow: 0 0 12px var(--accent3);
+    line-height: 1;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+  #timer-label {
+    font-size: 0.44rem;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  #timer-digits.urgent {
+    color: var(--accent2);
+    text-shadow: 0 0 24px var(--accent2);
+    animation: timerPulse 0.5s ease-in-out infinite alternate;
+  }
+  @keyframes timerPulse {
+    from { transform: scale(1); }
+    to   { transform: scale(1.08); }
+  }
+
+  .ctrl-group {
+    background: var(--glass);
+    border: 1px solid var(--dim);
+    border-left: 2px solid var(--accent);
+    padding: 12px 14px;
+    backdrop-filter: blur(10px);
+  }
+
+  .ctrl-label {
+    font-size: 0.55rem;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--dim);
+    padding-bottom: 4px;
+  }
+
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 7px 12px;
+    background: transparent;
+    border: 1px solid var(--dim);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s;
+    margin-bottom: 4px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn::before {
+    content: '▶ ';
+    color: var(--accent);
+    font-size: 0.55rem;
+  }
+
+  .btn:hover {
+    background: rgba(0,245,196,0.08);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 12px rgba(0,245,196,0.15);
+  }
+
+  .btn.danger::before { color: var(--accent2); }
+  .btn.danger:hover { background: rgba(255,62,108,0.08); border-color: var(--accent2); color: var(--accent2); box-shadow: 0 0 12px rgba(255,62,108,0.15); }
+
+  .btn.highlight { border-color: var(--accent); color: var(--accent); }
+
+  .speed-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .speed-control label { font-size: 0.6rem; color: var(--muted); flex: 1; }
+  .speed-control input[type=range] {
+    flex: 2;
+    accent-color: var(--accent);
+    height: 3px;
+  }
+  .speed-val { font-size: 0.65rem; color: var(--accent3); width: 24px; }
+
+  /* Bottom info bar */
+  #info-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    padding: 10px 60px;
+    display: flex;
+    gap: 40px;
+    align-items: center;
+    z-index: 150;
+    background: linear-gradient(to top, rgba(2,6,8,0.95), transparent);
+    font-size: 0.62rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+
+  .info-item strong { color: var(--accent3); }
+
+  /* Loading overlay */
+  #loader {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.8s;
+  }
+
+  #loader.hidden { opacity: 0; pointer-events: none; }
+
+  .loader-logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 2.5rem;
+    letter-spacing: 0.5em;
+    color: var(--accent);
+    text-shadow: 0 0 40px var(--accent), 0 0 80px rgba(0,245,196,0.3);
+    margin-bottom: 8px;
+  }
+
+  .loader-sub {
+    font-size: 0.65rem;
+    letter-spacing: 0.4em;
+    color: var(--muted);
+    margin-bottom: 48px;
+  }
+
+  .loader-bar-wrap {
+    width: 320px;
+    height: 2px;
+    background: var(--dim);
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+
+  .loader-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #00c4ff);
+    width: 0%;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 12px var(--accent);
+  }
+
+  .loader-status {
+    font-size: 0.62rem;
+    color: var(--muted);
+    letter-spacing: 0.2em;
+    height: 16px;
+  }
+
+  /* Map legend */
+  #legend { display: none !important; }
+
+  .legend-title { color: var(--muted); letter-spacing: 0.2em; margin-bottom: 6px; font-size: 0.55rem; }
+  .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 1px; flex-shrink: 0; }
+
+  /* Keys hint */
+  #keys { display: none !important; }
+
+  .key-row { display: flex; gap: 10px; margin-bottom: 4px; align-items: center; }
+  .key { background: var(--dim); color: var(--text); padding: 2px 6px; border-radius: 2px; font-size: 0.55rem; min-width: 20px; text-align: center; }
+
+  /* Location badge */
+  #location-badge {
+    position: fixed;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 150;
+    background: var(--glass);
+    border: 1px solid var(--dim);
+    padding: 6px 20px;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    color: var(--accent3);
+    text-align: center;
+    backdrop-filter: blur(10px);
+    white-space: nowrap;
+    transition: opacity 0.5s;
+  }
+
+  /* ── PLAY BUTTON ── */
+  #play-btn-wrap {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    z-index: 160; display: flex; flex-direction: column; align-items: center; gap: 10px;
+    transition: opacity 0.4s, transform 0.4s;
+  }
+  #play-btn-wrap.hidden { opacity: 0; pointer-events: none; transform: translateX(-50%) scale(0.85); }
+  #play-btn {
+    width: 90px; height: 90px; border-radius: 50%;
+    border: 2px solid var(--accent2); background: rgba(255,62,108,0.08);
+    color: var(--accent2); font-family: 'Orbitron', sans-serif; font-weight: 900;
+    font-size: 0.7rem; letter-spacing: 0.25em; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    box-shadow: 0 0 30px rgba(255,62,108,0.25), inset 0 0 20px rgba(255,62,108,0.05);
+    transition: all 0.2s; position: relative; overflow: hidden;
+    animation: playPulse 2s ease-in-out infinite;
+  }
+  @keyframes playPulse {
+    0%,100% { box-shadow: 0 0 30px rgba(255,62,108,0.25), inset 0 0 20px rgba(255,62,108,0.05); }
+    50% { box-shadow: 0 0 55px rgba(255,62,108,0.5), inset 0 0 30px rgba(255,62,108,0.12); }
+  }
+  #play-btn::before { content: ''; position: absolute; inset: 6px; border-radius: 50%; border: 1px solid rgba(255,62,108,0.35); }
+  #play-btn:hover { background: rgba(255,62,108,0.18); transform: scale(1.08); animation: none; box-shadow: 0 0 55px rgba(255,62,108,0.6), inset 0 0 30px rgba(255,62,108,0.1); }
+  #play-btn .play-icon { font-size: 1.9rem; line-height: 1; }
+  #play-label { font-size: 0.55rem; letter-spacing: 0.25em; color: var(--muted); }
+
+  #countdown-overlay {
+    position: fixed; inset: 0; z-index: 300;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none; opacity: 0; transition: opacity 0.15s;
+  }
+  #countdown-overlay.active { opacity: 1; }
+  #countdown-num {
+    font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 22vw;
+    color: var(--accent2); text-shadow: 0 0 80px var(--accent2), 0 0 160px rgba(255,62,108,0.4);
+    will-change: transform, opacity;
+  }
+  @keyframes countPop {
+    0%   { transform: scale(1.5); opacity: 1; }
+    70%  { transform: scale(0.95); opacity: 1; }
+    100% { transform: scale(0.7); opacity: 0; }
+  }
+  .count-pop { animation: countPop 0.9s ease-out forwards; }
+  @keyframes goFlash {
+    0%   { opacity: 1; transform: scale(1); color: #00f5c4; text-shadow: 0 0 80px #00f5c4; }
+    100% { opacity: 0; transform: scale(1.4); }
+  }
+  .go-flash { animation: goFlash 0.7s ease-out forwards; }
+
+  #tron-hud { position: fixed; inset: 0; z-index: 155; pointer-events: none; display: none; }
+  #tron-hud.active { display: block; }
+  #tron-score-bar {
+    position: absolute; top: 58px; left: 28px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  }
+  #tron-score-label { font-size: 0.48rem; letter-spacing: 0.3em; color: var(--muted); }
+  #tron-score { font-family: 'Orbitron', sans-serif; font-size: 1.8rem; font-weight: 700; color: var(--accent2); text-shadow: 0 0 20px var(--accent2); line-height: 1; }
+
+  #turn-controls {
+    position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 24px; pointer-events: all;
+  }
+  .turn-btn {
+    width: 70px; height: 70px; border-radius: 50%;
+    border: 2px solid var(--accent); background: rgba(0,245,196,0.06);
+    color: var(--accent); font-size: 1.7rem;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    box-shadow: 0 0 18px rgba(0,245,196,0.2); transition: all 0.12s;
+    user-select: none; -webkit-tap-highlight-color: transparent;
+  }
+  .turn-btn:active, .turn-btn.pressed {
+    background: rgba(0,245,196,0.22); box-shadow: 0 0 36px rgba(0,245,196,0.55); transform: scale(0.9);
+  }
+  #tron-hint {
+    position: absolute; bottom: 168px; left: 50%; transform: translateX(-50%);
+    font-size: 0.58rem; letter-spacing: 0.2em; color: var(--muted);
+    text-align: center; line-height: 2; white-space: nowrap; pointer-events: none;
+  }
+
+  #turn-flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.08s; }
+  #turn-flash.show-l { opacity: 1; background: linear-gradient(to right, rgba(0,245,196,0.22), transparent 45%); }
+  #turn-flash.show-r { opacity: 1; background: linear-gradient(to left,  rgba(0,245,196,0.22), transparent 45%); }
+
+  #speed-vignette {
+    position: fixed; inset: 0; z-index: 152; pointer-events: none;
+    opacity: 0; transition: opacity 0.6s;
+    background: radial-gradient(ellipse at center, transparent 45%, rgba(0,245,196,0.07) 100%);
+  }
+  #speed-vignette.on { opacity: 1; }
+
+  #game-over {
+    position: fixed; inset: 0; z-index: 400;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(2,6,8,0.9); opacity: 0; pointer-events: none;
+    transition: opacity 0.6s; backdrop-filter: blur(5px);
+  }
+  #game-over.active { opacity: 1; pointer-events: all; }
+  #game-over h1 {
+    font-family: 'Orbitron', sans-serif; font-size: clamp(2rem,8vw,4.5rem);
+    font-weight: 900; color: var(--accent2);
+    text-shadow: 0 0 50px var(--accent2); letter-spacing: 0.15em; margin-bottom: 10px;
+  }
+  #game-over .go-sub { font-size: 0.7rem; color: var(--muted); letter-spacing: 0.3em; margin-bottom: 6px; }
+  #game-over .final-score { font-family: 'Orbitron', sans-serif; font-size: 1.4rem; color: var(--accent3); letter-spacing: 0.2em; margin-bottom: 36px; }
+  .go-btn {
+    padding: 12px 36px; border: 2px solid var(--accent); background: transparent;
+    color: var(--accent); font-family: 'Orbitron', sans-serif; font-size: 0.75rem;
+    letter-spacing: 0.25em; cursor: pointer; transition: all 0.2s; margin: 6px;
+  }
+  .go-btn:hover { background: rgba(0,245,196,0.12); box-shadow: 0 0 20px rgba(0,245,196,0.3); }
+
+  /* ── COVERAGE HUD ── */
+  #coverage-ring-wrap {
+    position: absolute;
+    top: 60px;
+    right: 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+  }
+  #coverage-svg { filter: drop-shadow(0 0 8px rgba(0,245,196,0.5)); }
+  #coverage-pct-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem; font-weight: 700;
+    color: var(--accent);
+    text-shadow: 0 0 14px var(--accent);
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    line-height: 1;
+    white-space: nowrap;
+  }
+  #coverage-ring-label {
+    font-size: 0.52rem;
+    letter-spacing: 0.25em;
+    color: var(--muted);
+    text-align: center;
+  }
+  #coverage-ring-outer {
+    position: relative;
+    width: 90px; height: 90px;
+  }
+  /* Mini road map canvas */
+  #minimap-wrap {
+    position: absolute;
+    bottom: 160px;
+    right: 20px;
+    pointer-events: none;
+  }
+  #minimap-wrap canvas {
+    border: 1px solid var(--dim);
+    border-right: 2px solid var(--accent);
+    opacity: 0.9;
+    display: block;
+  }
+  #minimap-label {
+    font-size: 0.5rem;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    margin-top: 4px;
+    text-align: center;
+  }
+  /* Segment visited flash */
+  @keyframes coverageFlash {
+    0%   { color: #fff; text-shadow: 0 0 30px #fff; }
+    100% { color: var(--accent); text-shadow: 0 0 14px var(--accent); }
+  }
+  .coverage-bump { animation: coverageFlash 0.4s ease-out forwards; }
+  /* Best run badge */
+  #best-coverage {
+    position: absolute;
+    top: 158px; right: 28px;
+    font-size: 0.58rem;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    text-align: center;
+    pointer-events: none;
+    line-height: 1.7;
+  }
+  #best-coverage strong { color: var(--accent3); font-family: 'Orbitron', sans-serif; display: block; font-size: 0.75rem; }
+
+  /* ── BAD MAP OVERLAY ── */
+  #bad-map-overlay {
+    position: fixed; inset: 0; z-index: 450;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: rgba(2,6,8,0.93);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.5s;
+    backdrop-filter: blur(6px);
+  }
+  #bad-map-overlay.active { opacity: 1; pointer-events: all; }
+  #bad-map-overlay h2 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(1.2rem, 4vw, 2rem);
+    font-weight: 700;
+    color: var(--accent3);
+    text-shadow: 0 0 30px var(--accent3);
+    letter-spacing: 0.18em;
+    margin-bottom: 10px;
+  }
+  #bad-map-overlay .bm-sub {
+    font-size: 0.68rem;
+    color: var(--muted);
+    letter-spacing: 0.2em;
+    margin-bottom: 6px;
+    text-align: center;
+    line-height: 1.8;
+  }
+  #bad-map-overlay .bm-count {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.75rem;
+    color: var(--accent2);
+    letter-spacing: 0.15em;
+    margin-bottom: 32px;
+  }
+  #bad-map-reload-bar-wrap {
+    width: 260px; height: 3px;
+    background: var(--dim);
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+  #bad-map-reload-bar {
+    height: 100%;
+    background: var(--accent3);
+    width: 100%;
+    transform: scaleX(1);
+    transform-origin: left;
+    transition: transform linear;
+    box-shadow: 0 0 8px var(--accent3);
+  }
+  #bad-map-reload-label {
+    font-size: 0.55rem;
+    letter-spacing: 0.3em;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+  .bm-btn {
+    padding: 10px 28px;
+    border: 1px solid var(--muted);
+    background: transparent;
+    color: var(--muted);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .bm-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── JUMP BUTTON ── */
+  #btn-jump {
+    width: 52px; height: 52px; border-radius: 50%;
+    border: 2px solid var(--accent3);
+    background: rgba(245,196,0,0.06);
+    color: var(--accent3); font-size: 1.1rem;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    box-shadow: 0 0 12px rgba(245,196,0,0.15); transition: all 0.12s;
+    user-select: none; -webkit-tap-highlight-color: transparent;
+    position: relative; align-self: center;
+  }
+  #btn-jump:active, #btn-jump.pressed {
+    background: rgba(245,196,0,0.22);
+    box-shadow: 0 0 30px rgba(245,196,0,0.6);
+    transform: scale(0.9);
+  }
+  #btn-jump.ready {
+    border-color: #fff;
+    color: #fff;
+    box-shadow: 0 0 22px rgba(255,255,255,0.5), 0 0 8px rgba(245,196,0,0.4);
+    animation: jumpReady 0.7s ease-in-out infinite alternate;
+  }
+  #btn-jump.cooldown {
+    opacity: 0.35;
+    pointer-events: none;
+    border-color: var(--muted);
+    color: var(--muted);
+    box-shadow: none;
+    animation: none;
+  }
+  @keyframes jumpReady {
+    from { box-shadow: 0 0 14px rgba(255,255,255,0.3); }
+    to   { box-shadow: 0 0 32px rgba(255,255,255,0.7), 0 0 10px rgba(245,196,0,0.5); }
+  }
+  /* Cooldown arc overlay on jump button */
+  #jump-cooldown-svg {
+    position: absolute; inset: -2px; pointer-events: none;
+  }
+  #jump-cd-arc {
+    transition: stroke-dashoffset 0.05s linear;
+  }
+  /* Jump flash: full-screen vertical streak */
+  #jump-flash {
+    position: absolute; inset: 0; pointer-events: none;
+    opacity: 0; transition: opacity 0.06s;
+    background: linear-gradient(to bottom, rgba(245,196,0,0.18), transparent 40%, transparent 60%, rgba(245,196,0,0.18));
+  }
+  #jump-flash.show { opacity: 1; }
+
+  /* ── Arrow opportunity highlights ── */
+  .turn-btn.available {
+    border-color: #fff;
+    color: #fff;
+    background: rgba(255,255,255,0.08);
+    box-shadow: 0 0 24px rgba(255,255,255,0.45), 0 0 8px rgba(0,245,196,0.3);
+    animation: arrowPulse 0.9s ease-in-out infinite alternate;
+  }
+  @keyframes arrowPulse {
+    from { box-shadow: 0 0 12px rgba(255,255,255,0.25), 0 0 4px rgba(0,245,196,0.2); }
+    to   { box-shadow: 0 0 28px rgba(255,255,255,0.55), 0 0 12px rgba(0,245,196,0.4); }
+  }
+</style>
+</head>
+<body>
+
+<!-- Loader -->
+<div id="loader">
+  <div class="loader-logo">TERRAFORMER</div>
+  <div class="loader-sub">CLAIM EVERY STREET. LEAVE YOUR MARK.</div>
+  <div class="loader-bar-wrap"><div class="loader-bar" id="loader-bar"></div></div>
+  <div class="loader-status" id="loader-status">INITIALIZING SYSTEMS...</div>
+</div>
+
+<!-- Canvas -->
+<div id="canvas-container">
+  <canvas id="mainCanvas"></canvas>
+</div>
+
+<!-- Corners -->
+<div class="corner tl"></div>
+<div class="corner tr"></div>
+<div class="corner bl"></div>
+<div class="corner br"></div>
+
+<!-- Header -->
+<div id="header">
+  <div id="logo">TERRAFORMER</div>
+  <div id="coords-display">
+    <strong id="loc-name">LOADING LOCATION...</strong>
+    <span id="coord-text">LAT — LON</span>
+  </div>
+  <div id="status-bar">
+    <span class="status-dot"></span>
+    <span id="status-text">CONNECTING TO OVERPASS API</span>
+  </div>
+</div>
+
+<!-- Location badge -->
+<div id="location-badge" id="location-badge">ACQUIRING SIGNAL...</div>
+
+<!-- Key hints -->
+<div id="keys">
+  <div style="color: var(--accent); font-size:0.55rem; letter-spacing:0.2em; margin-bottom:6px;">NAVIGATION</div>
+  <div class="key-row"><span class="key">W</span><span>Forward</span></div>
+  <div class="key-row"><span class="key">S</span><span>Backward</span></div>
+  <div class="key-row"><span class="key">A</span><span>Strafe left</span></div>
+  <div class="key-row"><span class="key">D</span><span>Strafe right</span></div>
+  <div class="key-row"><span class="key">Q</span><span>Ascend</span></div>
+  <div class="key-row"><span class="key">E</span><span>Descend</span></div>
+  <div class="key-row"><span class="key">↑↓</span><span>Pitch</span></div>
+  <div class="key-row"><span class="key">←→</span><span>Yaw</span></div>
+  <div class="key-row"><span class="key">DRAG</span><span>Look around</span></div>
+</div>
+
+<!-- Controls -->
+<div id="controls">
+  <div class="ctrl-group">
+    <div class="ctrl-label">LOCATION</div>
+    <button class="btn highlight" onclick="loadRandomLocation()">⟳ RANDOM JUMP</button>
+    <button class="btn" onclick="loadPreset('city')">🏙 DENSE CITY</button>
+    <button class="btn" onclick="loadPreset('coast')">🌊 COASTLINE</button>
+    <button class="btn" onclick="loadPreset('rural')">🌿 RURAL</button>
+  </div>
+  <div class="ctrl-group">
+    <div class="ctrl-label">VIEW MODE</div>
+    <button class="btn" onclick="setView('fly')">✈ FLY THROUGH</button>
+    <button class="btn highlight" onclick="setView('orbit')">◎ ORBIT</button>
+    <button class="btn" onclick="setView('street')">👁 STREET LEVEL</button>
+    <div class="speed-control" style="margin-top:8px">
+      <label>ORBIT SPD</label>
+      <input type="range" min="1" max="30" value="3" id="orbitSlider" oninput="updateOrbitSpeed(this.value)">
+      <span class="speed-val" id="orbitVal">3</span>
+    </div>
+  </div>
+  <div class="ctrl-group">
+    <div class="ctrl-label">SPEED</div>
+    <div class="speed-control">
+      <label>MOVE</label>
+      <input type="range" min="1" max="20" value="5" id="speedSlider" oninput="updateSpeed(this.value)">
+      <span class="speed-val" id="speedVal">5</span>
+    </div>
+    <div class="speed-control">
+      <label>HEIGHT</label>
+      <input type="range" min="10" max="500" value="80" id="altSlider" oninput="setAltitude(this.value)">
+      <span class="speed-val" id="altVal">80</span>
+    </div>
+  </div>
+  <div class="ctrl-group">
+    <div class="ctrl-label">RENDER</div>
+    <button class="btn" onclick="toggleWireframe()">⬡ WIREFRAME</button>
+    <button class="btn" onclick="toggleNight()">◑ NIGHT MODE</button>
+    <button class="btn" onclick="toggleLabels()">⊟ LABELS</button>
+  </div>
+</div>
+
+<!-- Legend -->
+<div id="legend">
+  <div class="legend-title">MAP LAYER LEGEND</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#00c4ff"></div><span>Roads</span></div>
+  <div class="legend-item"><div class="legend-dot" style="background:#00f5c4"></div><span>Buildings</span></div>
+  <div class="legend-item"><div class="legend-dot" style="background:#0055aa"></div><span>Water</span></div>
+  <div class="legend-item"><div class="legend-dot" style="background:#00aa55"></div><span>Parks / Green</span></div>
+  <div class="legend-item"><div class="legend-dot" style="background:#aa5500"></div><span>Paths / Footways</span></div>
+</div>
+
+<!-- Info bar -->
+<div id="info-bar">
+  <div class="info-item">CAM ALT <strong id="cam-alt">---</strong>m</div>
+  <div class="info-item">HEADING <strong id="cam-heading">---</strong>°</div>
+  <div class="info-item">ELEMENTS <strong id="elem-count">---</strong></div>
+  <div class="info-item">FPS <strong id="fps-display">---</strong></div>
+  <div class="info-item">MODE <strong id="mode-display">ORBIT</strong></div>
+  <div class="info-item" style="margin-left:auto">TERRAFORMER // POWERED BY OPENSTREETMAP</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ─── GLOBALS ─────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('mainCanvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.setClearColor(0x020608);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x020608, 800, 3000);
+
+const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.5, 8000);
+
+// ─── STATE ─────────────────────────────────────────────────────────────────
+let mapGroup = new THREE.Group();
+scene.add(mapGroup);
+let moveSpeed = 5;
+let currentView = 'orbit';
+let wireframeMode = true;
+let nightMode = true;
+let labelsVisible = true;
+let labelObjects = [];
+let currentLat = 0, currentLon = 0;
+let orbitAngle = 0, orbitRadius = 400, orbitHeight = 200;
+let autoFly = false;
+let orbitSpeed = 0.03;
+let flyPath = [];
+let flyIndex = 0;
+let elemCount = 0;
+
+const keys = {};
+let mouseDown = false, lastMouseX = 0, lastMouseY = 0;
+let camYaw = 0, camPitch = -0.3;
+
+// ─── RESIZE ────────────────────────────────────────────────────────────────
+function resize() {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── LIGHTING ────────────────────────────────────────────────────────────────
+const ambLight = new THREE.AmbientLight(0x112233, 0.6);
+scene.add(ambLight);
+const dirLight = new THREE.DirectionalLight(0x4488ff, 0.8);
+dirLight.position.set(500, 800, 300);
+dirLight.castShadow = true;
+scene.add(dirLight);
+const pointLight1 = new THREE.PointLight(0x00f5c4, 1.2, 600);
+pointLight1.position.set(0, 200, 0);
+scene.add(pointLight1);
+
+// ─── GRID FLOOR ────────────────────────────────────────────────────────────
+function createGrid() {
+  const gridHelper = new THREE.GridHelper(4000, 80, 0x0a2030, 0x061520);
+  gridHelper.position.y = -1;
+  scene.add(gridHelper);
+}
+createGrid();
+
+// ─── MATERIALS ───────────────────────────────────────────────────────────────
+const mats = {
+  road:     new THREE.MeshLambertMaterial({ color: 0x00c4ff, emissive: 0x003344, wireframe: true }),
+  highway:  new THREE.MeshLambertMaterial({ color: 0x0088ff, emissive: 0x002244, wireframe: true }),
+  path:     new THREE.MeshLambertMaterial({ color: 0xaa5500, emissive: 0x221100, wireframe: true }),
+  building: new THREE.MeshLambertMaterial({ color: 0x00f5c4, emissive: 0x003322, wireframe: true }),
+  water:    new THREE.MeshLambertMaterial({ color: 0x0044aa, emissive: 0x001133, wireframe: true }),
+  park:     new THREE.MeshLambertMaterial({ color: 0x00aa55, emissive: 0x002211, wireframe: true }),
+  terrain:  new THREE.MeshLambertMaterial({ color: 0x0a1a10, emissive: 0x010802, wireframe: true }),
+  rail:     new THREE.MeshLambertMaterial({ color: 0xff8800, emissive: 0x221100, wireframe: true }),
+};
+
+// ─── COORDINATE PROJECTION ────────────────────────────────────────────────
+let projOrigin = { lat: 0, lon: 0 };
+const SCALE = 80000; // meters to scene units
+
+function latLonToXZ(lat, lon) {
+  const x = (lon - projOrigin.lon) * Math.cos(projOrigin.lat * Math.PI / 180) * SCALE;
+  const z = -(lat - projOrigin.lat) * SCALE;
+  return { x, z };
+}
+
+// ─── OSM PARSING ─────────────────────────────────────────────────────────────
+function classifyWay(tags) {
+  if (!tags) return null;
+  const hw = tags.highway;
+  const nat = tags.natural;
+  const land = tags.landuse;
+  const wat = tags.waterway;
+  const rail = tags.railway;
+  if (tags.building) return { type: 'building', height: parseFloat(tags['building:levels'] || tags.height || 3) * 3.5 };
+  if (hw === 'motorway' || hw === 'trunk' || hw === 'primary') return { type: 'highway', width: 6 };
+  if (hw === 'secondary' || hw === 'tertiary') return { type: 'road', width: 4 };
+  if (hw === 'residential' || hw === 'unclassified' || hw === 'service') return { type: 'road', width: 2.5 };
+  if (hw === 'footway' || hw === 'path' || hw === 'cycleway' || hw === 'track') return { type: 'path', width: 1 };
+  if (hw) return { type: 'road', width: 2 };
+  if (nat === 'water' || wat || land === 'reservoir') return { type: 'water', flat: true };
+  if (nat === 'wood' || land === 'forest' || land === 'grass' || land === 'meadow' || nat === 'grassland') return { type: 'park', flat: true };
+  if (land === 'residential' || land === 'commercial' || land === 'industrial') return { type: 'terrain', flat: true };
+  if (rail === 'rail' || rail === 'subway' || rail === 'light_rail') return { type: 'rail', width: 2 };
+  return null;
+}
+
+function buildLineGeometry(nodes, nodeMap, width, yOffset) {
+  const points = [];
+  for (const nid of nodes) {
+    const n = nodeMap[nid];
+    if (!n) continue;
+    const p = latLonToXZ(n.lat, n.lon);
+    points.push(new THREE.Vector3(p.x, yOffset, p.z));
+  }
+  if (points.length < 2) return null;
+
+  const path = new THREE.CatmullRomCurve3(points);
+  const segments = Math.max(points.length * 2, 4);
+  const shape = new THREE.Shape();
+  shape.moveTo(-width / 2, 0);
+  shape.lineTo(width / 2, 0);
+  shape.lineTo(width / 2, 0.4);
+  shape.lineTo(-width / 2, 0.4);
+
+  try {
+    const extrudeSettings = { steps: segments, bevelEnabled: false, extrudePath: path };
+    return new THREE.ExtrudeGeometry(shape, extrudeSettings);
+  } catch(e) {
+    // Fallback: tube
+    try {
+      return new THREE.TubeGeometry(path, segments, width / 3, 4, false);
+    } catch(e2) { return null; }
+  }
+}
+
+function buildPolygonGeometry(nodes, nodeMap, height, yBase) {
+  const pts2d = [];
+  for (const nid of nodes) {
+    const n = nodeMap[nid];
+    if (!n) continue;
+    const p = latLonToXZ(n.lat, n.lon);
+    pts2d.push(new THREE.Vector2(p.x, p.z));
+  }
+  if (pts2d.length < 3) return null;
+
+  const shape = new THREE.Shape(pts2d);
+  if (height > 0.5) {
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: height,
+      bevelEnabled: false
+    });
+    geo.rotateX(Math.PI / 2);
+    geo.translate(0, yBase, 0);
+    return geo;
+  } else {
+    const geo = new THREE.ShapeGeometry(shape);
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(0, yBase, 0);
+    return geo;
+  }
+}
+
+// ─── RENDER OSM DATA ─────────────────────────────────────────────────────────
+function renderOSMData(data) {
+  // Clear old map
+  while (mapGroup.children.length) mapGroup.remove(mapGroup.children[0]);
+  labelObjects = [];
+  elemCount = 0;
+
+  const nodeMap = {};
+  for (const el of data.elements) {
+    if (el.type === 'node') nodeMap[el.id] = el;
+  }
+
+  const roads = [], buildings = [], waters = [], parks = [], paths = [], rails = [], terrain = [];
+
+  for (const el of data.elements) {
+    if (el.type !== 'way') continue;
+    const cls = classifyWay(el.tags);
+    if (!cls) continue;
+
+    if (cls.type === 'building') buildings.push({ el, cls });
+    else if (cls.type === 'road') roads.push({ el, cls });
+    else if (cls.type === 'highway') roads.push({ el, cls });
+    else if (cls.type === 'path') paths.push({ el, cls });
+    else if (cls.type === 'water') waters.push({ el, cls });
+    else if (cls.type === 'park') parks.push({ el, cls });
+    else if (cls.type === 'rail') rails.push({ el, cls });
+    else if (cls.type === 'terrain') terrain.push({ el, cls });
+  }
+
+  const addMesh = (geo, mat) => {
+    if (!geo) return;
+    const m = new THREE.Mesh(geo, mat);
+    m.receiveShadow = true;
+    m.castShadow = true;
+    mapGroup.add(m);
+    elemCount++;
+  };
+
+  // Terrain patches
+  for (const { el } of terrain) {
+    const geo = buildPolygonGeometry(el.nodes, nodeMap, 0, -0.5);
+    addMesh(geo, mats.terrain);
+  }
+
+  // Parks
+  for (const { el } of parks) {
+    const geo = buildPolygonGeometry(el.nodes, nodeMap, 0, -0.3);
+    addMesh(geo, mats.park);
+  }
+
+  // Water
+  for (const { el } of waters) {
+    const geo = buildPolygonGeometry(el.nodes, nodeMap, 0, -0.2);
+    addMesh(geo, mats.water);
+  }
+
+  // Roads
+  for (const { el, cls } of roads) {
+    const geo = buildLineGeometry(el.nodes, nodeMap, cls.width || 3, 0.1);
+    addMesh(geo, cls.type === 'highway' ? mats.highway : mats.road);
+  }
+
+  // Paths
+  for (const { el, cls } of paths) {
+    const geo = buildLineGeometry(el.nodes, nodeMap, cls.width || 1, 0.15);
+    addMesh(geo, mats.path);
+  }
+
+  // Railways
+  for (const { el, cls } of rails) {
+    const geo = buildLineGeometry(el.nodes, nodeMap, 2, 0.2);
+    addMesh(geo, mats.rail);
+  }
+
+  // Buildings
+  for (const { el, cls } of buildings) {
+    const h = Math.max(cls.height || 10, 3);
+    const geo = buildPolygonGeometry(el.nodes, nodeMap, h, 0);
+    if (geo) {
+      // Random slight color variation per building
+      const hue = 0.48 + (Math.random() - 0.5) * 0.1;
+      const mat = new THREE.MeshLambertMaterial({
+        color: new THREE.Color().setHSL(hue, 0.9, 0.4 + Math.random() * 0.2),
+        emissive: new THREE.Color().setHSL(hue, 0.8, 0.1),
+        wireframe: wireframeMode
+      });
+      const m = new THREE.Mesh(geo, mat);
+      m.receiveShadow = true;
+      m.castShadow = true;
+      mapGroup.add(m);
+      elemCount++;
+    }
+  }
+
+  document.getElementById('elem-count').textContent = elemCount;
+
+  // Reset camera
+  camera.position.set(0, 80, 200);
+  camYaw = 0;
+  camPitch = -0.25;
+
+  // Build fly path from road nodes
+  buildFlyPath(roads, nodeMap);
+
+  // Build road graph for TRON mode
+  buildRoadGraph(roads, nodeMap);
+}
+
+function buildFlyPath(roads, nodeMap) {
+  flyPath = [];
+  for (const { el } of roads.slice(0, 20)) {
+    for (const nid of el.nodes) {
+      const n = nodeMap[nid];
+      if (!n) continue;
+      const p = latLonToXZ(n.lat, n.lon);
+      flyPath.push(new THREE.Vector3(p.x, 45, p.z));
+    }
+  }
+  flyIndex = 0;
+}
+
+// ─── OVERPASS API ─────────────────────────────────────────────────────────────
+async function fetchOSM(lat, lon, radius = 0.008) {
+  const b = radius;
+  const bbox = `${lat - b},${lon - b},${lat + b},${lon + b}`;
+  const query = `
+    [out:json][timeout:30];
+    (
+      way["highway"](${bbox});
+      way["building"](${bbox});
+      way["natural"](${bbox});
+      way["landuse"](${bbox});
+      way["waterway"](${bbox});
+      way["railway"](${bbox});
+    );
+    (._;>;);
+    out body;
+  `;
+  const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('Overpass API error');
+  return resp.json();
+}
+
+// ─── REVERSE GEOCODE ─────────────────────────────────────────────────────────
+async function reverseGeocode(lat, lon) {
+  try {
+    const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`, {
+      headers: { 'Accept-Language': 'en' }
+    });
+    const data = await resp.json();
+    return data.display_name ? data.display_name.split(',').slice(0, 3).join(', ') : `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+  } catch(e) {
+    return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+  }
+}
+
+// ─── RANDOM LOCATIONS ────────────────────────────────────────────────────────
+const PRESETS = {
+  city: [
+    [51.5074, -0.1278],   // London
+    [48.8566, 2.3522],    // Paris
+    [40.7128, -74.0060],  // NYC
+    [35.6762, 139.6503],  // Tokyo
+    [37.7749, -122.4194], // San Francisco
+    [52.5200, 13.4050],   // Berlin
+    [41.9028, 12.4964],   // Rome
+    [55.7558, 37.6176],   // Moscow
+    [-33.8688, 151.2093], // Sydney
+    [25.2048, 55.2708],   // Dubai
+  ],
+  coast: [
+    [36.1408, -5.3536],   // Gibraltar
+    [43.2965, 5.3698],    // Marseille
+    [37.9838, 23.7275],   // Athens coast
+    [-22.9068, -43.1729], // Rio
+    [1.3521, 103.8198],   // Singapore
+    [21.3069, -157.8583], // Honolulu
+  ],
+  rural: [
+    [47.5576, 7.5906],    // Swiss countryside
+    [45.4654, 9.1859],    // Milan outskirts
+    [51.7520, -1.2577],   // Oxford countryside
+    [43.7102, 7.2620],    // Monaco hills
+    [35.0116, 135.7681],  // Kyoto rural
+  ]
+};
+
+function getRandomLatLon() {
+  // Bias toward interesting populated areas
+  const regions = [
+    { lat: [25, 60], lon: [-30, 60] },   // Europe/Africa
+    { lat: [20, 50], lon: [60, 150] },   // Asia
+    { lat: [25, 50], lon: [-130, -60] }, // N. America
+    { lat: [-40, 10], lon: [-80, -35] }, // S. America
+    { lat: [-40, -10], lon: [115, 155] }, // Australia
+  ];
+  const region = regions[Math.floor(Math.random() * regions.length)];
+  return {
+    lat: region.lat[0] + Math.random() * (region.lat[1] - region.lat[0]),
+    lon: region.lon[0] + Math.random() * (region.lon[1] - region.lon[0])
+  };
+}
+
+
+// Quick road-density check on raw OSM data (before full render)
+function countRoadSegments(data) {
+  const nodeSet = new Set();
+  for (const el of data.elements) if (el.type === 'node') nodeSet.add(el.id);
+  let segments = 0;
+  for (const el of data.elements) {
+    if (el.type !== 'way' || !el.tags) continue;
+    const hw = el.tags.highway;
+    if (!hw) continue;
+    // Count consecutive node pairs that both exist
+    const nodes = el.nodes || [];
+    for (let i = 0; i < nodes.length - 1; i++) {
+      if (nodeSet.has(nodes[i]) && nodeSet.has(nodes[i+1])) segments++;
+    }
+  }
+  return segments;
+}
+
+async function loadLocation(lat, lon, _retryCount = 0) {
+  setLoaderVisible(true);
+  setProgress(5, 'ACQUIRING COORDINATES...');
+  currentLat = lat;
+  currentLon = lon;
+  projOrigin = { lat, lon };
+
+  document.getElementById('coord-text').textContent =
+    `LAT ${lat.toFixed(5)} / LON ${lon.toFixed(5)}`;
+  document.getElementById('location-badge').textContent = 'FETCHING OSM DATA...';
+  document.getElementById('status-text').textContent = 'QUERYING OVERPASS API';
+
+  setProgress(20, 'DOWNLOADING MAP DATA...');
+
+  let data;
+  try {
+    data = await fetchOSM(lat, lon);
+    setProgress(55, 'PARSING VECTOR ELEMENTS...');
+  } catch(e) {
+    // Try mirror
+    try {
+      const b = 0.008;
+      const bbox = `${lat-b},${lon-b},${lat+b},${lon+b}`;
+      const query = `[out:json][timeout:25];(way["highway"](${bbox});way["building"](${bbox});(._;>;););out body;`;
+      const resp = await fetch(`https://lz4.overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+      data = await resp.json();
+      setProgress(55, 'PARSING VECTOR ELEMENTS...');
+    } catch(e2) {
+      setProgress(100, 'ERROR — RETRYING WITH FALLBACK...');
+      // Generate synthetic city as fallback
+      data = generateSyntheticCity(lat, lon);
+      setProgress(70, 'GENERATING SYNTHETIC MAP...');
+    }
+  }
+
+  // ── Road density check ───────────────────────────────────────
+  const roadSegs = countRoadSegments(data);
+  if (roadSegs < MIN_ROAD_SEGMENTS && _retryCount < 4) {
+    setProgress(30, 'MAP TOO SPARSE (' + roadSegs + ' segs) — FINDING BETTER CITY...');
+    await sleep(300);
+    // Pick a new city preset coord and retry
+    const _presetList = PRESETS['city'];
+    const [_rlat, _rlon] = _presetList[Math.floor(Math.random() * _presetList.length)];
+    return loadLocation(_rlat, _rlon, _retryCount + 1);
+  }
+
+  setProgress(70, 'BUILDING 3D GEOMETRY... (' + roadSegs + ' segments)');
+  await sleep(50);
+  renderOSMData(data);
+
+  setProgress(90, 'REVERSE GEOCODING...');
+  const name = await reverseGeocode(lat, lon);
+  document.getElementById('loc-name').textContent = name.toUpperCase();
+  document.getElementById('location-badge').textContent = '◉ ' + name.toUpperCase().split(',')[0];
+  document.getElementById('status-text').textContent = 'LIVE — OSM DATA LOADED';
+
+  setProgress(100, 'RENDER COMPLETE');
+  await sleep(400);
+  setLoaderVisible(false);
+}
+
+async function loadRandomLocation() {
+  const { lat, lon } = getRandomLatLon();
+  await loadLocation(lat, lon);
+}
+
+async function loadPreset(type) {
+  const list = PRESETS[type];
+  const [lat, lon] = list[Math.floor(Math.random() * list.length)];
+  await loadLocation(lat, lon);
+}
+
+// ─── SYNTHETIC FALLBACK ───────────────────────────────────────────────────────
+function generateSyntheticCity(lat, lon) {
+  const elements = [];
+  let id = 1;
+
+  const addNode = (nlat, nlon) => {
+    elements.push({ type: 'node', id: id++, lat: nlat, lon: nlon });
+    return id - 1;
+  };
+
+  // Grid of streets
+  for (let i = -5; i <= 5; i++) {
+    const rowNodes = [];
+    for (let j = -5; j <= 5; j++) {
+      rowNodes.push(addNode(lat + i * 0.001, lon + j * 0.001));
+    }
+    elements.push({ type: 'way', id: id++, nodes: rowNodes, tags: { highway: i === 0 ? 'primary' : 'residential' } });
+  }
+  for (let j = -5; j <= 5; j++) {
+    const colNodes = [];
+    for (let i = -5; i <= 5; i++) {
+      colNodes.push(addNode(lat + i * 0.001, lon + j * 0.001));
+    }
+    elements.push({ type: 'way', id: id++, nodes: colNodes, tags: { highway: j === 0 ? 'primary' : 'secondary' } });
+  }
+
+  // Some buildings
+  for (let i = -4; i < 4; i++) {
+    for (let j = -4; j < 4; j++) {
+      if (Math.random() < 0.6) {
+        const blat = lat + i * 0.001 + 0.0002;
+        const blon = lon + j * 0.001 + 0.0002;
+        const sz = 0.00025 + Math.random() * 0.0002;
+        const nids = [
+          addNode(blat, blon),
+          addNode(blat + sz, blon),
+          addNode(blat + sz, blon + sz),
+          addNode(blat, blon + sz),
+          addNode(blat, blon),
+        ];
+        elements.push({ type: 'way', id: id++, nodes: nids, tags: { building: 'yes', 'building:levels': String(Math.ceil(Math.random() * 8)) } });
+      }
+    }
+  }
+  return { elements };
+}
+
+// ─── LOADER HELPERS ──────────────────────────────────────────────────────────
+function setLoaderVisible(v) {
+  document.getElementById('loader').classList.toggle('hidden', !v);
+}
+function setProgress(pct, msg) {
+  document.getElementById('loader-bar').style.width = pct + '%';
+  document.getElementById('loader-status').textContent = msg;
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ─── CAMERA CONTROLS ────────────────────────────────────────────────────────
+window.addEventListener('keydown', e => keys[e.key] = true);
+window.addEventListener('keyup', e => keys[e.key] = false);
+
+canvas.addEventListener('mousedown', e => {
+  mouseDown = true;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+});
+window.addEventListener('mouseup', () => mouseDown = false);
+window.addEventListener('mousemove', e => {
+  if (!mouseDown) return;
+  const dx = e.clientX - lastMouseX;
+  const dy = e.clientY - lastMouseY;
+  camYaw -= dx * 0.003;
+  camPitch = Math.max(-Math.PI / 2.2, Math.min(0.6, camPitch - dy * 0.003));
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+});
+
+canvas.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    mouseDown = true;
+    lastMouseX = e.touches[0].clientX;
+    lastMouseY = e.touches[0].clientY;
+  }
+});
+canvas.addEventListener('touchmove', e => {
+  if (!mouseDown || e.touches.length !== 1) return;
+  const dx = e.touches[0].clientX - lastMouseX;
+  const dy = e.touches[0].clientY - lastMouseY;
+  camYaw -= dx * 0.003;
+  camPitch = Math.max(-Math.PI / 2.2, Math.min(0.6, camPitch - dy * 0.003));
+  lastMouseX = e.touches[0].clientX;
+  lastMouseY = e.touches[0].clientY;
+});
+canvas.addEventListener('touchend', () => mouseDown = false);
+
+function updateCameraFromInput(dt) {
+  if (tronActive) return;
+  const speed = moveSpeed * dt * 60;
+  const forward = new THREE.Vector3(-Math.sin(camYaw) * Math.cos(camPitch), Math.sin(camPitch), -Math.cos(camYaw) * Math.cos(camPitch));
+  const right = new THREE.Vector3(Math.cos(camYaw), 0, -Math.sin(camYaw));
+  const up = new THREE.Vector3(0, 1, 0);
+
+  if (keys['w'] || keys['W'] || keys['ArrowUp'] && !keys['ArrowLeft'] && !keys['ArrowRight'])
+    camera.position.addScaledVector(forward, speed);
+  if (keys['s'] || keys['S'])
+    camera.position.addScaledVector(forward, -speed);
+  if (keys['a'] || keys['A'])
+    camera.position.addScaledVector(right, -speed);
+  if (keys['d'] || keys['D'])
+    camera.position.addScaledVector(right, speed);
+  if (keys['q'] || keys['Q'])
+    camera.position.addScaledVector(up, speed);
+  if (keys['e'] || keys['E'])
+    camera.position.addScaledVector(up, -speed);
+
+  if (keys['ArrowLeft'])  camYaw += 0.02;
+  if (keys['ArrowRight']) camYaw -= 0.02;
+  if (keys['ArrowUp'] && (keys['ArrowLeft'] || keys['ArrowRight']))
+    camPitch = Math.max(-Math.PI / 2.2, camPitch - 0.01);
+  if (keys['ArrowDown'])
+    camPitch = Math.min(0.6, camPitch + 0.01);
+
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = camYaw;
+  camera.rotation.x = camPitch;
+}
+
+// ─── VIEW MODES ───────────────────────────────────────────────────────────────
+function setView(mode) {
+  currentView = mode;
+  document.getElementById('mode-display').textContent = mode.toUpperCase();
+  autoFly = (mode === 'fly');
+  if (mode === 'street') {
+    camera.position.y = 12;
+  } else if (mode === 'orbit') {
+    orbitAngle = 0;
+  }
+}
+
+function updateOrbit(dt) {
+  orbitAngle += dt * orbitSpeed;
+  const x = Math.sin(orbitAngle) * orbitRadius;
+  const z = Math.cos(orbitAngle) * orbitRadius;
+  camera.position.set(x, orbitHeight, z);
+  camera.lookAt(0, 0, 0);
+}
+
+function updateAutoFly(dt) {
+  if (flyPath.length < 2) return;
+  flyIndex = (flyIndex + dt * 8) % flyPath.length;
+  const idx = Math.floor(flyIndex);
+  const next = (idx + 1) % flyPath.length;
+  const t = flyIndex - idx;
+  const pos = new THREE.Vector3().lerpVectors(flyPath[idx], flyPath[next], t);
+  camera.position.lerp(pos, 0.05);
+  const lookAt = flyPath[next];
+  camera.lookAt(lookAt.x, lookAt.y + 5, lookAt.z);
+}
+
+// ─── HUD UPDATES ─────────────────────────────────────────────────────────────
+let lastTime = performance.now();
+let frameCount = 0, fpsTimer = 0;
+
+function updateHUD(dt) {
+  fpsTimer += dt;
+  frameCount++;
+  if (fpsTimer >= 0.5) {
+    document.getElementById('fps-display').textContent = Math.round(frameCount / fpsTimer);
+    frameCount = 0;
+    fpsTimer = 0;
+  }
+  document.getElementById('cam-alt').textContent = Math.round(camera.position.y);
+  const heading = (((-camYaw * 180 / Math.PI) % 360) + 360) % 360;
+  document.getElementById('cam-heading').textContent = Math.round(heading);
+}
+
+// ─── TOGGLE FUNCTIONS ────────────────────────────────────────────────────────
+function toggleWireframe() {
+  wireframeMode = !wireframeMode;
+  mapGroup.traverse(obj => {
+    if (obj.isMesh && obj.material) {
+      obj.material.wireframe = wireframeMode;
+    }
+  });
+}
+
+function toggleNight() {
+  nightMode = !nightMode;
+  if (nightMode) {
+    renderer.setClearColor(0x020608);
+    scene.fog.color.setHex(0x020608);
+    ambLight.color.setHex(0x112233);
+    dirLight.color.setHex(0x4488ff);
+  } else {
+    renderer.setClearColor(0x87ceeb);
+    scene.fog.color.setHex(0x87ceeb);
+    ambLight.color.setHex(0xfff5e0);
+    dirLight.color.setHex(0xffffff);
+  }
+}
+
+function toggleLabels() {
+  labelsVisible = !labelsVisible;
+  labelObjects.forEach(l => { l.visible = labelsVisible; });
+}
+
+function updateOrbitSpeed(val) {
+  orbitSpeed = parseFloat(val) * 0.01;
+  document.getElementById('orbitVal').textContent = val;
+}
+
+function updateSpeed(val) {
+  moveSpeed = parseFloat(val);
+  document.getElementById('speedVal').textContent = val;
+}
+
+function setAltitude(val) {
+  camera.position.y = parseFloat(val);
+  document.getElementById('altVal').textContent = val;
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// TRON STREET RUNNER
+// ═══════════════════════════════════════════════════════════
+
+// ── Road Graph ──────────────────────────────────────────────
+// Built from OSM road ways as a node adjacency graph
+let roadGraph = {};   // nodeId -> { pos: THREE.Vector3, neighbors: [nodeId] }
+let roadNodePositions = {}; // nodeId -> THREE.Vector3
+
+// Called at end of renderOSMData; builds the graph from parsed roads
+function buildRoadGraph(roads, nodeMap) {
+  roadGraph = {};
+  roadNodePositions = {};
+
+  for (const { el } of roads) {
+    const nodes = el.nodes;
+    for (let i = 0; i < nodes.length; i++) {
+      const nid = nodes[i];
+      const n = nodeMap[nid];
+      if (!n) continue;
+      const p = latLonToXZ(n.lat, n.lon);
+      const pos = new THREE.Vector3(p.x, 5, p.z);
+      roadNodePositions[nid] = pos;
+      if (!roadGraph[nid]) roadGraph[nid] = { pos, neighbors: [] };
+      if (i > 0) {
+        const prev = nodes[i - 1];
+        if (nodeMap[prev]) {
+          if (!roadGraph[nid].neighbors.includes(prev)) roadGraph[nid].neighbors.push(prev);
+          if (!roadGraph[prev]) roadGraph[prev] = { pos: roadNodePositions[prev], neighbors: [] };
+          if (!roadGraph[prev].neighbors.includes(nid)) roadGraph[prev].neighbors.push(nid);
+        }
+      }
+    }
+  }
+  buildSegmentSet();
+}
+
+// Find the nearest road node to a position
+function nearestRoadNode(pos) {
+  let best = null, bestD = Infinity;
+  for (const [id, data] of Object.entries(roadGraph)) {
+    const d = pos.distanceTo(data.pos);
+    if (d < bestD) { bestD = d; best = id; }
+  }
+  return best;
+}
+
+// ── TRON State ───────────────────────────────────────────────
+let tronActive = false;
+let tronScore = 0;
+let tronSpeed = 28;
+let tronCurrentNode = null;
+let tronNextNode = null;
+let tronProgress = 0;
+let tronDirection = null;
+let tronPendingTurn = null;
+let tronTrail = [];
+let tronTrailMesh = null;
+let tronHeadMesh = null;
+
+// ── Hop / bad-map detection ───────────────────────────────────
+// Minimum road segments required to consider a map playable
+const MIN_ROAD_SEGMENTS = 80;
+
+const HOP_WINDOW_MS    = 4000;  // rolling window to count hops in
+const HOP_THRESHOLD    = 5;     // hops within window = bad map
+let   hopTimestamps    = [];    // timestamps of recent teleports
+let   badMapActive     = false;
+let   badMapTimer      = null;
+let tronSwipeStartX = 0;
+let tronSwipeStartY = 0;
+
+// Smooth camera
+let camTargetPos   = new THREE.Vector3();
+let camTargetLook  = new THREE.Vector3();
+let camSmoothPos   = new THREE.Vector3();
+let camSmoothLook  = new THREE.Vector3();
+let camFirstFrame  = true;
+
+// Round timer
+let ROUND_DURATION = 60; // dynamically set per map
+let tronTimeLeft = ROUND_DURATION;
+
+function calcAdaptiveRoundTime() {
+  // Sum total road length in scene units
+  let totalLen = 0;
+  for (const [id, node] of Object.entries(roadGraph)) {
+    for (const nb of node.neighbors) {
+      const nbNode = roadGraph[nb];
+      if (nbNode) totalLen += node.pos.distanceTo(nbNode.pos);
+    }
+  }
+  // Each segment counted twice (A->B and B->A), so halve
+  totalLen /= 2;
+  const segCount = totalSegments.size;
+  // Base: 45s for small maps, up to 120s for megacities
+  // Formula: 45 + clamp(segCount/8, 0, 75)
+  const adaptive = Math.round(45 + Math.min(segCount / 8, 75));
+  ROUND_DURATION = Math.max(45, Math.min(adaptive, 120));
+  console.log('Adaptive round time:', ROUND_DURATION, 's for', segCount, 'segments,', Math.round(totalLen), 'total road units');
+}
+let tronTimerInterval = null;
+
+// Dive-bomb animation state
+let tronDiving = false;
+let tronDiveProgress = 0;
+let tronDiveStartPos = new THREE.Vector3();
+let tronDiveStartTarget = new THREE.Vector3();
+
+// ── UI helpers ───────────────────────────────────────────────
+function showPlayBtn(v) {
+  document.getElementById('play-btn-wrap').classList.toggle('hidden', !v);
+}
+function showTronHUD(v) {
+  document.getElementById('tron-hud').classList.toggle('active', v);
+}
+function showGameOver(v) {
+  document.getElementById('game-over').classList.toggle('active', v);
+}
+function setTronScore(n) {
+  tronScore = n;
+  document.getElementById('tron-score').textContent = n;
+  // final-score-display hidden (we use go-distance in game over instead)
+}
+
+// ── TURN FLASH ───────────────────────────────────────────────
+function flashTurn(dir) {
+  const el = document.getElementById('turn-flash');
+  el.className = dir === 'left' ? 'show-l' : 'show-r';
+  // Visual feedback on button
+  const btn = document.getElementById(dir === 'left' ? 'btn-left' : 'btn-right');
+  btn.classList.add('pressed');
+  setTimeout(() => {
+    el.className = '';
+    btn.classList.remove('pressed');
+  }, 180);
+}
+
+// ── COUNTDOWN ────────────────────────────────────────────────
+function runCountdown(cb) {
+  const overlay = document.getElementById('countdown-overlay');
+  const num = document.getElementById('countdown-num');
+  overlay.classList.add('active');
+
+  const steps = ['3', '2', '1', 'GO'];
+  let i = 0;
+
+  function tick() {
+    num.textContent = steps[i];
+    num.className = '';
+    void num.offsetWidth; // force reflow to restart animation
+    num.className = steps[i] === 'GO' ? 'go-flash' : 'count-pop';
+    sfxCountdownBeep(steps[i] === 'GO');
+    i++;
+    if (i < steps.length) {
+      setTimeout(tick, steps[i - 1] === 'GO' ? 700 : 900);
+    } else {
+      setTimeout(() => {
+        overlay.classList.remove('active');
+        cb();
+      }, 700);
+    }
+  }
+  tick();
+}
+
+// ── START / EXIT ─────────────────────────────────────────────
+function startTronMode() {
+  showGameOver(false);
+  showPlayBtn(false);
+
+  // Make sure we have a road graph
+  if (Object.keys(roadGraph).length === 0) {
+    alert('Road data not loaded yet. Please wait for the map to finish loading.');
+    showPlayBtn(true);
+    return;
+  }
+
+  // Set orbit so we can dive from it
+  currentView = 'orbit';
+  document.getElementById('mode-display').textContent = 'DIVING';
+
+  // Pick a start node near center
+  const centerApprox = new THREE.Vector3(0, 5, 0);
+  tronCurrentNode = nearestRoadNode(centerApprox);
+  if (!tronCurrentNode || !roadGraph[tronCurrentNode]) {
+    alert('No road nodes found. Try a Dense City preset.');
+    showPlayBtn(true);
+    return;
+  }
+
+  // Pick initial direction toward first neighbor
+  const neighbors = roadGraph[tronCurrentNode].neighbors;
+  if (!neighbors.length) { showPlayBtn(true); return; }
+  tronNextNode = String(neighbors[0]);
+  tronProgress = 0;
+  tronDirection = new THREE.Vector3().subVectors(
+    roadGraph[tronNextNode].pos, roadGraph[tronCurrentNode].pos
+  ).normalize();
+  tronPendingTurn = null;
+  tronTrail = [roadGraph[tronCurrentNode].pos.clone()];
+  setTronScore(0);
+  tronSpeed = 28;
+
+  // Remove old trail/head meshes
+  if (tronTrailMesh) { scene.remove(tronTrailMesh); tronTrailMesh = null; }
+  if (tronHeadMesh) { scene.remove(tronHeadMesh); tronHeadMesh = null; }
+
+  // Reset coverage + hop detection + jump
+  resetCoverage();
+  initMinimap();
+  hopTimestamps = [];
+  badMapActive = false;
+  jumpLastTime  = 0;
+  jumpReady     = false;
+  if (jumpCdAnimId) { cancelAnimationFrame(jumpCdAnimId); jumpCdAnimId = null; }
+  const _jbtn = document.getElementById('btn-jump');
+  if (_jbtn) { _jbtn.classList.remove('ready','cooldown'); }
+  const _jarc = document.getElementById('jump-cd-arc');
+  if (_jarc) _jarc.setAttribute('stroke-dashoffset','157');
+
+  // Dive-bomb animation
+  tronDiving = true;
+  tronDiveProgress = 0;
+  tronDiveStartPos.copy(camera.position);
+  tronDiveStartTarget.copy(roadGraph[tronCurrentNode].pos);
+
+  // Collapse right controls panel
+  document.getElementById('controls').classList.add('tron-hidden');
+
+  runCountdown(() => {
+    tronActive = true;
+    tronDiving = false;
+    // Snap smooth-cam to start position
+    const sp = roadGraph[tronCurrentNode].pos;
+    camera.position.set(sp.x - tronDirection.x * 16, 8, sp.z - tronDirection.z * 16);
+    camSmoothPos.copy(camera.position);
+    camSmoothLook.copy(sp);
+    camFirstFrame = true;
+    currentView = 'tron';
+    document.getElementById('mode-display').textContent = 'STREET RUN';
+    showTronHUD(true);
+    document.getElementById('speed-vignette').classList.add('on');
+    startRoundTimer();
+    sfxGameStart();
+    startEngineHum();
+  });
+}
+
+async function replayNewMap() {
+  showGameOver(false);
+  if (tronTrailMesh) { scene.remove(tronTrailMesh); tronTrailMesh = null; }
+  if (tronHeadMesh)  { scene.remove(tronHeadMesh);  tronHeadMesh  = null; }
+  await loadPreset('city');
+  setTimeout(() => startTronMode(), 400);
+}
+
+function exitTronMode() {
+  tronActive = false;
+  tronDiving = false;
+  stopRoundTimer();
+  stopEngineHum();
+  stopAlarm();
+  showTronHUD(false);
+  showGameOver(false);
+  showPlayBtn(true);
+  document.getElementById('controls').classList.remove('tron-hidden');
+  document.getElementById('speed-vignette').classList.remove('on');
+  currentView = 'orbit';
+  document.getElementById('mode-display').textContent = 'ORBIT';
+  if (tronTrailMesh) { scene.remove(tronTrailMesh); tronTrailMesh = null; }
+}
+
+function gameOver() {
+  tronActive = false;
+  stopRoundTimer();
+  sfxGameOver();
+  const _bl = document.getElementById('btn-left');
+  const _br = document.getElementById('btn-right');
+  if (_bl) _bl.classList.remove('available');
+  if (_br) _br.classList.remove('available');
+  currentView = 'orbit';
+  document.getElementById('speed-vignette').classList.remove('on');
+  document.getElementById('controls').classList.remove('tron-hidden');
+  showTronHUD(false);
+
+  // Update game over stats
+  const finalPct = getCoveragePct();
+  updateBestCoverage(finalPct);
+  const goD = document.getElementById('go-distance');
+  const goC = document.getElementById('go-coverage');
+  const goB = document.getElementById('go-best');
+  if (goD) goD.textContent = tronScore + ' m';
+  if (goC) goC.textContent = finalPct.toFixed(1) + '%';
+  if (goB) goB.textContent = bestCoverage.toFixed(1) + '%';
+
+  showGameOver(true);
+  // Shake effect
+  canvas.style.transition = 'transform 0.05s';
+  let shakes = 0;
+  const sh = setInterval(() => {
+    canvas.style.transform = shakes % 2 === 0 ? 'translate(4px,-3px)' : 'translate(-4px,3px)';
+    shakes++;
+    if (shakes > 8) { clearInterval(sh); canvas.style.transform = ''; }
+  }, 50);
+}
+
+// ── TURN INPUT ───────────────────────────────────────────────
+function tronTurn(dir) {
+  if (!tronActive) return;
+  tronPendingTurn = dir;
+  flashTurn(dir);
+  sfxTurn();
+}
+
+// Arrow key intercept during tron mode
+window.addEventListener('keydown', e => {
+  if (!tronActive) return;
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); tronTurn('left'); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); tronTurn('right'); }
+  if (e.key === 'ArrowUp')    { e.preventDefault(); tronJump(); }
+});
+
+// Swipe support
+canvas.addEventListener('touchstart', e => {
+  tronSwipeStartX = e.touches[0].clientX;
+  tronSwipeStartY = e.touches[0].clientY;
+}, { passive: true });
+canvas.addEventListener('touchend', e => {
+  if (!tronActive) return;
+  const dx = e.changedTouches[0].clientX - tronSwipeStartX;
+  const dy = e.changedTouches[0].clientY - tronSwipeStartY;
+  if (Math.abs(dy) > Math.abs(dx) && dy < -35) {
+    tronJump(); // swipe up
+  } else if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 30) {
+    tronTurn(dx < 0 ? 'left' : 'right');
+  }
+}, { passive: true });
+
+// Mouse swipe (desktop)
+let mouseSwipeX = 0, mouseSwipeY = 0;
+canvas.addEventListener('mousedown', e => { if (tronActive) { mouseSwipeX = e.clientX; mouseSwipeY = e.clientY; } });
+canvas.addEventListener('mouseup', e => {
+  if (!tronActive) return;
+  const dx = e.clientX - mouseSwipeX;
+  const dy = e.clientY - mouseSwipeY;
+  if (Math.abs(dy) > Math.abs(dx) && dy < -40) { tronJump(); }
+  else if (Math.abs(dx) > 40) tronTurn(dx < 0 ? 'left' : 'right');
+});
+
+// ── BEST NEIGHBOR SELECTION ──────────────────────────────────
+// Given current dir, find the neighbor that best matches turning left or right
+function chooseNeighbor(fromId, currentDir, turn) {
+  const node = roadGraph[fromId];
+  if (!node) return null;
+  const neighbors = node.neighbors.filter(nid => String(nid) !== String(fromId));
+  if (!neighbors.length) return null;
+
+  // Score each neighbor by how well it matches the desired turn
+  // turn: 'left', 'right', or null (straight)
+  let best = null, bestScore = -Infinity;
+  const right2D = new THREE.Vector3(-currentDir.z, 0, currentDir.x); // right-hand perpendicular
+
+  for (const nid of neighbors) {
+    const nd = roadGraph[nid];
+    if (!nd) continue;
+    const toNeighbor = new THREE.Vector3().subVectors(nd.pos, node.pos).normalize();
+    const dot = toNeighbor.dot(currentDir); // forward component
+    const cross = toNeighbor.dot(right2D);  // right component
+
+    let score;
+    if (turn === null) {
+      // Prefer straight ahead
+      score = dot;
+    } else if (turn === 'right') {
+      score = cross + dot * 0.2;
+    } else {
+      score = -cross + dot * 0.2;
+    }
+    if (score > bestScore) { bestScore = score; best = nid; }
+  }
+  return best ? String(best) : null;
+}
+
+// ── TRAIL RENDERING ──────────────────────────────────────────
+function updateTrail(newPos) {
+  tronTrail.push(newPos.clone());
+  if (tronTrail.length > 600) tronTrail.shift();
+
+  // ── Snake head: same radius as trail tube, distinct color ────
+  if (!tronHeadMesh) {
+    const headGeo = new THREE.SphereGeometry(0.7, 8, 6);
+    const headMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    tronHeadMesh = new THREE.Mesh(headGeo, headMat);
+    tronHeadMesh.renderOrder = 999;
+    scene.add(tronHeadMesh);
+  }
+  tronHeadMesh.position.copy(newPos);
+
+  // Cycle: white → hot-pink → back — fast enough to be visible, slow enough not to strobe
+  const _ht = (Date.now() % 800) / 800;
+  const _hr = 0.5 + 0.5 * Math.sin(_ht * Math.PI * 2);
+  tronHeadMesh.material.color.setRGB(1.0, 0.15 + 0.65 * (1 - _hr), 0.15 + 0.85 * _hr);
+
+  if (tronTrail.length < 2) return;
+
+  if (tronTrailMesh) scene.remove(tronTrailMesh);
+  try {
+    const curve = new THREE.CatmullRomCurve3(tronTrail);
+    const geo = new THREE.TubeGeometry(curve, Math.min(tronTrail.length * 2, 400), 0.7, 4, false);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x00f5c4, transparent: true, opacity: 0.75 });
+    tronTrailMesh = new THREE.Mesh(geo, mat);
+    scene.add(tronTrailMesh);
+  } catch(e) {}
+}
+
+// ── DIVE-BOMB ANIMATION ─────────────────────────────────────
+function updateDive(dt) {
+  tronDiveProgress = Math.min(tronDiveProgress + dt * 0.6, 1);
+  const t = 1 - Math.pow(1 - tronDiveProgress, 3); // ease-out cubic
+  const target = tronDiveStartTarget.clone().add(new THREE.Vector3(0, 80, 0));
+  camera.position.lerpVectors(tronDiveStartPos, target, t);
+  camera.lookAt(tronDiveStartTarget);
+}
+
+// ── TRON UPDATE (called each frame) ──────────────────────────
+// Find the nearest accessible road node to a position (for teleport)
+function teleportToNearestRoad() {
+  // Find a node with at least one neighbor that isn't a dead-end
+  let best = null, bestD = Infinity;
+  const camPos = camera.position;
+  for (const [id, data] of Object.entries(roadGraph)) {
+    if (data.neighbors.length < 1) continue;
+    const d = camPos.distanceTo(data.pos);
+    if (d < bestD) { bestD = d; best = id; }
+  }
+  return best;
+}
+
+// Start the round countdown timer
+function startRoundTimer() {
+  calcAdaptiveRoundTime();
+  tronTimeLeft = ROUND_DURATION;
+  updateTimerUI(tronTimeLeft);
+  if (tronTimerInterval) clearInterval(tronTimerInterval);
+  tronTimerInterval = setInterval(() => {
+    if (!tronActive) { clearInterval(tronTimerInterval); return; }
+    tronTimeLeft = Math.max(0, tronTimeLeft - 1);
+    updateTimerUI(tronTimeLeft);
+    if (tronTimeLeft <= 0) {
+      clearInterval(tronTimerInterval);
+      gameOver();
+    }
+  }, 1000);
+}
+
+function stopRoundTimer() {
+  if (tronTimerInterval) { clearInterval(tronTimerInterval); tronTimerInterval = null; }
+}
+
+function updateTimerUI(secs) {
+  const el = document.getElementById('timer-digits');
+  const bar = document.getElementById('timer-bar');
+  if (!el || !bar) return;
+  el.textContent = String(secs).padStart(2, '0');
+  const pct = Math.max(0, (secs / ROUND_DURATION) * 100);
+  bar.style.transform = 'scaleX(' + (pct / 100).toFixed(3) + ')';
+  if (secs <= 10) {
+    bar.style.background = 'linear-gradient(90deg, #ff3e6c, #ff8800)';
+    el.classList.add('urgent');
+  } else if (secs <= 20) {
+    bar.style.background = 'linear-gradient(90deg, #f5c400, #ff8800)';
+    el.classList.remove('urgent');
+  } else {
+    bar.style.background = 'linear-gradient(90deg, #00f5c4, #f5c400)';
+    el.classList.remove('urgent');
+  }
+}
+
+function updateTron(dt) {
+  if (tronDiving) { updateDive(dt); return; }
+  if (!tronActive) return;
+
+  const fromNode = roadGraph[tronCurrentNode];
+  const toNode   = roadGraph[tronNextNode];
+  if (!fromNode || !toNode) {
+    // Teleport to nearest road instead of game over
+    const rescue = teleportToNearestRoad();
+    if (!rescue || !roadGraph[rescue] || !roadGraph[rescue].neighbors.length) { gameOver(); return; }
+    tronCurrentNode = rescue;
+    tronNextNode = String(roadGraph[rescue].neighbors[0]);
+    tronProgress = 0;
+    tronDirection = new THREE.Vector3()
+      .subVectors(roadGraph[tronNextNode].pos, roadGraph[rescue].pos).normalize();
+    camFirstFrame = true;
+    recordHop();
+    return;
+  }
+
+  // Skip tiny degenerate segments (node on top of node)
+  const segLen = fromNode.pos.distanceTo(toNode.pos);
+  if (segLen < 0.5) {
+    tronProgress = 1; // force advance
+  }
+
+  // Advance along segment
+  const step = (tronSpeed * dt) / Math.max(segLen, 1.0);
+  tronProgress += step;
+  setTronScore(Math.floor(tronScore + tronSpeed * dt));
+
+  // Gradually increase speed
+  tronSpeed = Math.min(tronSpeed + dt * 1.2, 80);
+  updateEngineHum(tronSpeed);
+
+  // Current world position (clamped to avoid overshoot)
+  const t = Math.min(tronProgress, 1);
+  const pos = new THREE.Vector3().lerpVectors(fromNode.pos, toNode.pos, t);
+  pos.y = 5;
+
+  // Update trail
+  updateTrail(pos);
+
+  // Redraw minimap player dot
+  if (Math.floor(tronScore) % 18 === 0) drawMinimap();
+
+  // Update button states every ~20 score units
+  if (Math.floor(tronScore) % 20 === 0) { updateJumpReadiness(); updateArrowHighlights(); }
+
+  // ── Smooth camera ────────────────────────────────────────────
+  // Look-ahead: blend current direction with next segment direction for
+  // pre-turning the camera before the actual corner arrives
+  let lookDir = tronDirection.clone();
+  const distToNode = (1 - t) * segLen;
+  if (distToNode < 25 && tronNextNode && roadGraph[tronNextNode]) {
+    // Peek ahead at where we'll turn
+    const peekNid = chooseNeighbor(tronNextNode, tronDirection, tronPendingTurn);
+    if (peekNid && roadGraph[peekNid]) {
+      const nextDir = new THREE.Vector3()
+        .subVectors(roadGraph[peekNid].pos, roadGraph[tronNextNode].pos)
+        .normalize();
+      const blend = Math.max(0, 1 - distToNode / 25); // 0..1 as we approach
+      lookDir.lerp(nextDir, blend * 0.6).normalize();
+    }
+  }
+
+  const behindDist = 16 + tronSpeed * 0.12; // pull back more at speed
+  camTargetPos.copy(pos).addScaledVector(lookDir, -behindDist).setY(7 + tronSpeed * 0.04);
+  camTargetLook.copy(pos).addScaledVector(lookDir, 28).setY(4);
+
+  // Initialise smooth targets on first frame to avoid jump-in
+  if (camFirstFrame) {
+    camSmoothPos.copy(camTargetPos);
+    camSmoothLook.copy(camTargetLook);
+    camFirstFrame = false;
+  }
+
+  // Exponential smoothing — higher = snappier, lower = floatier
+  const posLerpK  = 1 - Math.exp(-8  * dt);
+  const lookLerpK = 1 - Math.exp(-12 * dt);
+  camSmoothPos.lerp(camTargetPos,  posLerpK);
+  camSmoothLook.lerp(camTargetLook, lookLerpK);
+
+  camera.position.copy(camSmoothPos);
+  camera.lookAt(camSmoothLook);
+  // ────────────────────────────────────────────────────────────
+
+  // Reached next node?
+  if (tronProgress >= 1) {
+    const wasNew = markSegmentVisited(tronCurrentNode, tronNextNode);
+    if (wasNew) {
+      const pct = getCoveragePct();
+      updateCoverageUI(pct);
+      updateBestCoverage(pct);
+      drawMinimap();
+      // Milestone every 10%
+      if (Math.floor(pct / 10) > Math.floor((pct - 0.2) / 10)) sfxMilestone();
+      // 100% coverage
+      if (pct >= 100) sfxFullCoverage();
+    }
+
+    tronProgress = 0;
+    tronCurrentNode = tronNextNode;
+
+    // Choose next segment
+    let nextNid = chooseNeighbor(tronCurrentNode, tronDirection, tronPendingTurn);
+    tronPendingTurn = null;
+
+    if (!nextNid || !roadGraph[nextNid]) {
+      // Try straight
+      nextNid = chooseNeighbor(tronCurrentNode, tronDirection, null);
+    }
+
+    if (!nextNid || !roadGraph[nextNid]) {
+      // True dead end — teleport to nearest connected road node
+      const rescue = teleportToNearestRoad();
+      if (!rescue || !roadGraph[rescue] || !roadGraph[rescue].neighbors.length) {
+        gameOver(); return;
+      }
+      tronCurrentNode = rescue;
+      nextNid = String(roadGraph[rescue].neighbors[0]);
+      // Instant camera snap on teleport (reset smoother)
+      camFirstFrame = true;
+      sfxTeleport();
+      recordHop();
+    }
+
+    tronNextNode = String(nextNid);
+    tronDirection = new THREE.Vector3()
+      .subVectors(roadGraph[tronNextNode].pos, roadGraph[tronCurrentNode].pos)
+      .normalize();
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// COVERAGE SYSTEM
+// ═══════════════════════════════════════════════════════════
+
+// A "segment" is a canonical edge: "minId_maxId"
+let totalSegments = new Set();      // all road segments in the map
+let visitedSegments = new Set();    // segments traversed this run
+let bestCoverage = 0;               // best % across all runs (this session)
+let minimapCtx = null;
+let minimapBounds = { minX:0, maxX:1, minZ:0, maxZ:1 };
+
+function segKey(a, b) {
+  return String(a) < String(b) ? a + '_' + b : b + '_' + a;
+}
+
+// Build total segment set from road graph
+function buildSegmentSet() {
+  totalSegments.clear();
+  for (const [id, node] of Object.entries(roadGraph)) {
+    for (const nb of node.neighbors) {
+      totalSegments.add(segKey(id, nb));
+    }
+  }
+  // Compute minimap bounds
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const node of Object.values(roadGraph)) {
+    if (node.pos.x < minX) minX = node.pos.x;
+    if (node.pos.x > maxX) maxX = node.pos.x;
+    if (node.pos.z < minZ) minZ = node.pos.z;
+    if (node.pos.z > maxZ) maxZ = node.pos.z;
+  }
+  minimapBounds = { minX, maxX, minZ, maxZ };
+}
+
+function resetCoverage() {
+  visitedSegments.clear();
+  updateCoverageUI(0);
+  drawMinimap();
+}
+
+function markSegmentVisited(fromId, toId) {
+  const key = segKey(fromId, toId);
+  if (visitedSegments.has(key)) return false; // already visited
+  visitedSegments.add(key);
+  return true; // newly visited
+}
+
+function getCoveragePct() {
+  if (totalSegments.size === 0) return 0;
+  return Math.round((visitedSegments.size / totalSegments.size) * 1000) / 10;
+}
+
+// ── UI ───────────────────────────────────────────────────────
+function updateCoverageUI(pct) {
+  // Ring arc: circumference = 2π*36 ≈ 226.2
+  const circ = 226.2;
+  const offset = circ - (pct / 100) * circ;
+  const arc = document.getElementById('coverage-arc');
+  if (arc) arc.setAttribute('stroke-dashoffset', offset.toFixed(2));
+
+  // Color shift: green → yellow → red based on how full
+  let color;
+  if (pct < 25)       color = '#00f5c4';
+  else if (pct < 60)  color = '#f5c400';
+  else if (pct < 85)  color = '#ff8800';
+  else                color = '#ff3e6c';
+  if (arc) arc.setAttribute('stroke', color);
+
+  const label = document.getElementById('coverage-pct-label');
+  if (label) {
+    label.textContent = pct.toFixed(1) + '%';
+    label.style.color = color;
+    label.style.textShadow = '0 0 14px ' + color;
+    // Bump animation on increase
+    label.classList.remove('coverage-bump');
+    void label.offsetWidth;
+    label.classList.add('coverage-bump');
+  }
+}
+
+function updateBestCoverage(pct) {
+  if (pct > bestCoverage) {
+    bestCoverage = pct;
+    const el = document.getElementById('best-pct');
+    if (el) el.textContent = pct.toFixed(1) + '%';
+  }
+}
+
+// ── MINIMAP ──────────────────────────────────────────────────
+function initMinimap() {
+  const canvas = document.getElementById('minimap');
+  if (!canvas) return;
+  minimapCtx = canvas.getContext('2d');
+  drawMinimap();
+}
+
+function worldToMinimap(x, z, W, H) {
+  const { minX, maxX, minZ, maxZ } = minimapBounds;
+  const px = ((x - minX) / (maxX - minX + 0.001)) * (W - 8) + 4;
+  const py = ((z - minZ) / (maxZ - minZ + 0.001)) * (H - 8) + 4;
+  return { px, py };
+}
+
+function drawMinimap() {
+  const ctx = minimapCtx;
+  if (!ctx) return;
+  const W = 140, H = 140;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = 'rgba(2,6,8,0.9)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw all road segments (dim)
+  ctx.strokeStyle = '#1a3a40';
+  ctx.lineWidth = 1;
+  for (const [id, node] of Object.entries(roadGraph)) {
+    for (const nb of node.neighbors) {
+      const nbNode = roadGraph[nb];
+      if (!nbNode) continue;
+      const a = worldToMinimap(node.pos.x, node.pos.z, W, H);
+      const b = worldToMinimap(nbNode.pos.x, nbNode.pos.z, W, H);
+      ctx.beginPath();
+      ctx.moveTo(a.px, a.py);
+      ctx.lineTo(b.px, b.py);
+      ctx.stroke();
+    }
+  }
+
+  // Draw visited segments (bright)
+  for (const key of visitedSegments) {
+    const [aid, bid] = key.split('_');
+    const a = roadGraph[aid], b = roadGraph[bid];
+    if (!a || !b) continue;
+    const pa = worldToMinimap(a.pos.x, a.pos.z, W, H);
+    const pb = worldToMinimap(b.pos.x, b.pos.z, W, H);
+    ctx.strokeStyle = '#00f5c4';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = '#00f5c4';
+    ctx.shadowBlur = 3;
+    ctx.beginPath();
+    ctx.moveTo(pa.px, pa.py);
+    ctx.lineTo(pb.px, pb.py);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Draw player position
+  if (tronCurrentNode && roadGraph[tronCurrentNode]) {
+    const fromNode = roadGraph[tronCurrentNode];
+    const toNode   = tronNextNode ? roadGraph[tronNextNode] : null;
+    let px, py;
+    if (toNode && tronProgress >= 0) {
+      const wx = fromNode.pos.x + (toNode.pos.x - fromNode.pos.x) * tronProgress;
+      const wz = fromNode.pos.z + (toNode.pos.z - fromNode.pos.z) * tronProgress;
+      const p = worldToMinimap(wx, wz, W, H);
+      px = p.px; py = p.py;
+    } else {
+      const p = worldToMinimap(fromNode.pos.x, fromNode.pos.z, W, H);
+      px = p.px; py = p.py;
+    }
+    // Player dot
+    ctx.fillStyle = '#ff3e6c';
+    ctx.shadowColor = '#ff3e6c';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.arc(px, py, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+// ─── RENDER LOOP ──────────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+
+  if (currentView === 'orbit') {
+    updateOrbit(dt);
+  } else if (currentView === 'tron') {
+    updateTron(dt);
+  } else if (tronDiving) {
+    updateTron(dt);
+  } else if (currentView === 'fly' && autoFly && flyPath.length > 1) {
+    updateAutoFly(dt);
+  } else {
+    updateCameraFromInput(dt);
+  }
+
+  // Pulse point light
+  pointLight1.intensity = 1.0 + Math.sin(now * 0.002) * 0.3;
+
+  updateHUD(dt);
+  renderer.render(scene, camera);
+}
+
+// ─── INIT ──────────────────────────────────────────────────────────────────
+(async () => {
+  camera.position.set(0, 200, 400);
+  animate();
+  await loadPreset('city');
+})();
+
+
+// ═══════════════════════════════════════════════════════════
+// BAD MAP DETECTION
+// ═══════════════════════════════════════════════════════════
+function recordHop() {
+  const now = Date.now();
+  hopTimestamps.push(now);
+  // Prune old entries outside the window
+  hopTimestamps = hopTimestamps.filter(t => now - t <= HOP_WINDOW_MS);
+
+  if (hopTimestamps.length >= HOP_THRESHOLD && !badMapActive) {
+    triggerBadMap(hopTimestamps.length);
+  }
+}
+
+function triggerBadMap(hopCount) {
+  if (badMapActive) return;
+  badMapActive = true;
+  tronActive = false;
+  stopRoundTimer();
+  stopEngineHum();
+  stopAlarm();
+  document.getElementById('speed-vignette').classList.remove('on');
+  showTronHUD(false);
+  showGameOver(false);
+
+  // Descending zap sound — map is broken
+  sfxSweep(600, 80, 'sawtooth', 0.35, 0.7);
+  setTimeout(() => sfxNoise(0.2, 0.5, 'lowpass'), 150);
+
+  const overlay = document.getElementById('bad-map-overlay');
+  document.getElementById('bm-hop-count').textContent =
+    hopCount + ' TELEPORTS IN ' + (HOP_WINDOW_MS / 1000) + 's';
+  overlay.classList.add('active');
+
+  // Animate countdown bar over 3s then auto-reload
+  const bar = document.getElementById('bad-map-reload-bar');
+  const cdEl = document.getElementById('bm-countdown');
+  bar.style.transition = 'none';
+  bar.style.transform = 'scaleX(1)';
+  // Force reflow then start shrink
+  void bar.offsetWidth;
+  bar.style.transition = 'transform 3s linear';
+  bar.style.transform = 'scaleX(0)';
+
+  let secs = 3;
+  cdEl.textContent = secs;
+  const tick = setInterval(() => {
+    secs--;
+    if (cdEl) cdEl.textContent = Math.max(0, secs);
+    if (secs <= 0) { clearInterval(tick); executeBadMapReload(); }
+  }, 1000);
+  badMapTimer = tick;
+}
+
+function skipBadMapWait() {
+  if (badMapTimer) clearInterval(badMapTimer);
+  executeBadMapReload();
+}
+
+async function executeBadMapReload() {
+  document.getElementById('bad-map-overlay').classList.remove('active');
+  // Clean up current tron state
+  if (tronTrailMesh) { scene.remove(tronTrailMesh); tronTrailMesh = null; }
+  if (tronHeadMesh)  { scene.remove(tronHeadMesh);  tronHeadMesh  = null; }
+  hopTimestamps = [];
+  badMapActive  = false;
+  // Load a fresh dense city and re-enter play mode automatically
+  await loadPreset('city');
+  // Small delay so the map renders before starting
+  setTimeout(() => startTronMode(), 600);
+}
+
+
+
+// ── Arrow opportunity highlighting ────────────────────────────────
+function updateArrowHighlights() {
+  if (!tronActive) return;
+  const btnL = document.getElementById('btn-left');
+  const btnR = document.getElementById('btn-right');
+  if (!btnL || !btnR) return;
+
+  // Look at neighbors from the NEXT node (where we'll be making the choice)
+  const fromId = tronNextNode || tronCurrentNode;
+  const curDir = tronDirection;
+  if (!fromId || !curDir || !roadGraph[fromId]) {
+    btnL.classList.remove('available');
+    btnR.classList.remove('available');
+    return;
+  }
+
+  const rightVec = new THREE.Vector3(-curDir.z, 0, curDir.x);
+  const node = roadGraph[fromId];
+  let canLeft = false, canRight = false;
+
+  for (const nbId of node.neighbors) {
+    const nb = roadGraph[nbId];
+    if (!nb) continue;
+    const toNb = new THREE.Vector3().subVectors(nb.pos, node.pos).normalize();
+    const fwd  = toNb.dot(curDir);
+    const side = toNb.dot(rightVec);
+    // Must have at least a slight lateral component and not dead-back
+    if (fwd > -0.3) {
+      if (side >  0.25) canRight = true;
+      if (side < -0.25) canLeft  = true;
+    }
+  }
+
+  btnL.classList.toggle('available', canLeft);
+  btnR.classList.toggle('available', canRight);
+}
+
+// ═══════════════════════════════════════════════════════════
+// JUMP SYSTEM
+// ═══════════════════════════════════════════════════════════
+const JUMP_COOLDOWN_MS  = 3500;   // ms between allowed jumps
+const JUMP_MIN_DIST     = 30;     // min world-units away from current pos
+const JUMP_MAX_DIST     = 350;    // search radius for landing node
+
+let jumpLastTime  = 0;            // timestamp of last jump
+let jumpReady     = false;        // whether a good landing spot exists nearby
+let jumpCdAnimId  = null;
+
+// Find the best jump target: unvisited node far enough away but within radius
+function findJumpTarget() {
+  const curNode = roadGraph[tronCurrentNode];
+  if (!curNode) return null;
+  const origin = curNode.pos;
+
+  let best = null, bestScore = -Infinity;
+  for (const [id, node] of Object.entries(roadGraph)) {
+    if (id === tronCurrentNode || id === tronNextNode) continue;
+    if (!node.neighbors || node.neighbors.length === 0) continue;
+    const dist = origin.distanceTo(node.pos);
+    if (dist < JUMP_MIN_DIST || dist > JUMP_MAX_DIST) continue;
+
+    // Prefer unvisited segments; penalise already-visited nodes
+    let unvisitedBonus = 0;
+    for (const nb of node.neighbors) {
+      if (!visitedSegments.has(segKey(id, nb))) unvisitedBonus += 1;
+    }
+
+    // Score: favour unvisited + mid-range distance (not too close, not too far)
+    const distScore = 1 - Math.abs(dist - 150) / 200; // peaks around 150 units away
+    const score = unvisitedBonus * 2 + distScore;
+    if (score > bestScore) { bestScore = score; best = id; }
+  }
+  return best;
+}
+
+function tronJump() {
+  if (!tronActive) return;
+  const now = Date.now();
+  if (now - jumpLastTime < JUMP_COOLDOWN_MS) return; // still cooling down
+
+  const targetId = findJumpTarget();
+  if (!targetId || !roadGraph[targetId]) return;
+
+  const targetNode = roadGraph[targetId];
+  const nextNbs = targetNode.neighbors.filter(nb => roadGraph[nb]);
+  if (!nextNbs.length) return;
+
+  // Execute jump
+  jumpLastTime = now;
+  tronCurrentNode = targetId;
+  tronNextNode    = String(nextNbs[0]);
+  tronProgress    = 0;
+  tronDirection   = new THREE.Vector3()
+    .subVectors(roadGraph[tronNextNode].pos, targetNode.pos)
+    .normalize();
+  camFirstFrame = true;
+
+  // Visual flash
+  const jf = document.getElementById('jump-flash');
+  jf.classList.add('show');
+  setTimeout(() => jf.classList.remove('show'), 120);
+
+  // Sound: rising chirp
+  sfxSweep(200, 700, 'triangle', 0.14, 0.35);
+
+  // Start cooldown indicator
+  startJumpCooldownUI();
+}
+
+function startJumpCooldownUI() {
+  const btn  = document.getElementById('btn-jump');
+  const arc  = document.getElementById('jump-cd-arc');
+  const circ = 157; // 2π * 25
+  btn.classList.add('cooldown');
+  btn.classList.remove('ready');
+  if (jumpCdAnimId) cancelAnimationFrame(jumpCdAnimId);
+  const start = Date.now();
+
+  function tick() {
+    const elapsed = Date.now() - start;
+    const pct = Math.min(elapsed / JUMP_COOLDOWN_MS, 1);
+    arc.setAttribute('stroke-dashoffset', (circ * (1 - pct)).toFixed(2));
+    if (pct < 1) {
+      jumpCdAnimId = requestAnimationFrame(tick);
+    } else {
+      arc.setAttribute('stroke-dashoffset', '0');
+      btn.classList.remove('cooldown');
+      updateJumpReadiness();
+    }
+  }
+  arc.setAttribute('stroke-dashoffset', circ.toFixed(2));
+  jumpCdAnimId = requestAnimationFrame(tick);
+}
+
+// Called each frame to sense proximity and update button state
+function updateJumpReadiness() {
+  const btn = document.getElementById('btn-jump');
+  if (!btn || !tronActive) return;
+  if (Date.now() - jumpLastTime < JUMP_COOLDOWN_MS) return; // still cooling
+  const target = findJumpTarget();
+  const nowReady = !!target;
+  if (nowReady !== jumpReady) {
+    jumpReady = nowReady;
+    btn.classList.toggle('ready', jumpReady);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// TERRAFORMER SOUND ENGINE — 8-bit / vector arcade style
+// ═══════════════════════════════════════════════════════════
+let audioCtx = null;
+let masterGain = null;
+let soundEnabled = true;
+
+function getAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.22;
+    masterGain.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function sfxTone(freq, type, duration, gainVal, fadeOut, detune) {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.connect(env); env.connect(masterGain);
+    osc.type = type || 'square';
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    if (detune) osc.detune.setValueAtTime(detune, ctx.currentTime);
+    env.gain.setValueAtTime(gainVal || 0.6, ctx.currentTime);
+    if (fadeOut) env.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + duration);
+  } catch(e) {}
+}
+
+function sfxSweep(freqStart, freqEnd, type, duration, gainVal) {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.connect(env); env.connect(masterGain);
+    osc.type = type || 'sawtooth';
+    osc.frequency.setValueAtTime(freqStart, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freqEnd, ctx.currentTime + duration);
+    env.gain.setValueAtTime(gainVal || 0.5, ctx.currentTime);
+    env.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + duration);
+  } catch(e) {}
+}
+
+function sfxNoise(duration, gainVal, filterType) {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    const bufLen = Math.floor(ctx.sampleRate * duration);
+    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const env = ctx.createGain();
+    const bpf = ctx.createBiquadFilter();
+    bpf.type = filterType || 'bandpass';
+    bpf.frequency.value = 800;
+    bpf.Q.value = 0.5;
+    src.connect(bpf); bpf.connect(env); env.connect(masterGain);
+    env.gain.setValueAtTime(gainVal || 0.8, ctx.currentTime);
+    env.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    src.start(ctx.currentTime);
+  } catch(e) {}
+}
+
+function sfxGameStart() {
+  // Subtle two-note chime — soft triangle wave, low gain
+  sfxTone(440, 'triangle', 0.18, 0.18, true);
+  setTimeout(() => sfxTone(660, 'triangle', 0.22, 0.14, true), 140);
+}
+
+function sfxCountdownBeep(isGo) {
+  if (isGo) {
+    sfxSweep(440, 880, 'square', 0.18, 0.7);
+    setTimeout(() => sfxTone(880, 'square', 0.2, 0.5, true), 80);
+  } else {
+    sfxTone(440, 'square', 0.1, 0.45, true);
+  }
+}
+
+function sfxTurn() {
+  sfxSweep(320, 480, 'square', 0.05, 0.18);
+}
+
+function sfxNewSegment() {
+  sfxTone(880, 'square', 0.055, 0.28, true);
+}
+
+function sfxMilestone() {
+  [440, 554, 659].forEach((f, i) =>
+    setTimeout(() => sfxTone(f, 'square', 0.18, 0.35, true), i * 15));
+}
+
+function sfxFullCoverage() {
+  [523, 659, 784, 1047].forEach((f, i) =>
+    setTimeout(() => sfxTone(f, 'square', 0.22, 0.5, true), i * 90));
+  setTimeout(() => [1047, 1319, 1568].forEach((f, i) =>
+    setTimeout(() => sfxTone(f, 'square', 0.3, 0.45, true), i * 70)), 400);
+}
+
+function sfxTeleport() {
+  sfxSweep(900, 200, 'sawtooth', 0.12, 0.5);
+  sfxNoise(0.08, 0.3, 'highpass');
+}
+
+let engineOsc = null, engineEnv = null, engineLfo = null;
+function startEngineHum() {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    if (engineOsc) { try { engineOsc.stop(); engineLfo.stop(); } catch(e){} }
+    engineOsc = ctx.createOscillator();
+    engineEnv = ctx.createGain();
+    engineLfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    engineLfo.frequency.value = 6; lfoGain.gain.value = 8;
+    engineLfo.connect(lfoGain); lfoGain.connect(engineOsc.detune);
+    engineLfo.start();
+    engineOsc.type = 'square';
+    engineOsc.frequency.value = 55;
+    engineEnv.gain.value = 0.0;
+    engineOsc.connect(engineEnv); engineEnv.connect(masterGain);
+    engineOsc.start();
+    engineEnv.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.3);
+  } catch(e) {}
+}
+function stopEngineHum() {
+  if (!engineEnv) return;
+  try {
+    const ctx = getAudioCtx();
+    engineEnv.gain.linearRampToValueAtTime(0.0, ctx.currentTime + 0.4);
+    setTimeout(() => { try { engineOsc.stop(); engineLfo.stop(); } catch(e){} engineOsc = null; }, 500);
+  } catch(e) {}
+}
+function updateEngineHum(speed) {
+  if (!engineOsc || !soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    engineOsc.frequency.setTargetAtTime(50 + (speed / 80) * 90, ctx.currentTime, 0.1);
+  } catch(e) {}
+}
+
+let alarmOsc = null, alarmEnv = null, alarmLfo = null;
+function startAlarm() {
+  if (!soundEnabled || alarmOsc) return;
+  try {
+    const ctx = getAudioCtx();
+    alarmOsc = ctx.createOscillator();
+    alarmEnv = ctx.createGain();
+    alarmLfo = ctx.createOscillator();
+    const lfoG = ctx.createGain();
+    alarmLfo.frequency.value = 2; lfoG.gain.value = 0.14;
+    alarmLfo.connect(lfoG); lfoG.connect(alarmEnv.gain);
+    alarmEnv.gain.value = 0.12;
+    alarmOsc.type = 'square'; alarmOsc.frequency.value = 880;
+    alarmOsc.connect(alarmEnv); alarmEnv.connect(masterGain);
+    alarmLfo.start(); alarmOsc.start();
+  } catch(e) {}
+}
+function stopAlarm() {
+  if (!alarmOsc) return;
+  try { alarmOsc.stop(); alarmLfo.stop(); } catch(e){}
+  alarmOsc = null; alarmEnv = null; alarmLfo = null;
+}
+
+function sfxGameOver() {
+  stopEngineHum(); stopAlarm();
+  sfxNoise(0.4, 0.9, 'lowpass');
+  sfxSweep(440, 55, 'sawtooth', 0.5, 0.6);
+  setTimeout(() => sfxTone(110, 'square', 0.3, 0.4, true), 200);
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  if (masterGain) masterGain.gain.value = soundEnabled ? 0.22 : 0;
+}
+
+</script>
+
+<!-- PLAY button -->
+<div id="play-btn-wrap">
+  <div id="play-label">STREET RUN</div>
+  <button id="play-btn" onclick="startTronMode()">
+    <span class="play-icon">▶</span>
+    <span>PLAY</span>
+  </button>
+</div>
+
+<!-- Countdown -->
+<div id="countdown-overlay"><div id="countdown-num">3</div></div>
+
+<!-- Speed vignette -->
+<div id="speed-vignette"></div>
+
+<!-- TRON HUD -->
+<div id="tron-hud">
+  <!-- Distance score (top center) -->
+  <div id="tron-score-bar">
+    <div id="tron-score-label">DISTANCE</div>
+    <div id="tron-score">0</div>
+  </div>
+
+  <!-- Round timer (top center, below score) -->
+  <div id="round-timer">
+    <div id="timer-digits">60</div>
+    <div id="timer-bar-wrap"><div id="timer-bar"></div></div>
+    <div id="timer-label">TIME REMAINING</div>
+  </div>
+
+  <!-- Coverage ring (top right) -->
+  <div id="coverage-ring-wrap">
+    <div id="coverage-ring-outer">
+      <svg id="coverage-svg" width="90" height="90" viewBox="0 0 90 90">
+        <!-- Track ring -->
+        <circle cx="45" cy="45" r="36" fill="none" stroke="#1a3a40" stroke-width="7"/>
+        <!-- Progress arc -->
+        <circle id="coverage-arc" cx="45" cy="45" r="36"
+          fill="none" stroke="#00f5c4" stroke-width="7"
+          stroke-linecap="round"
+          stroke-dasharray="226.2" stroke-dashoffset="226.2"
+          transform="rotate(-90 45 45)"/>
+        <!-- Tick marks every 25% -->
+        <line x1="45" y1="4"  x2="45" y2="12" stroke="#1a3a40" stroke-width="2"/>
+        <line x1="86" y1="45" x2="78" y2="45" stroke="#1a3a40" stroke-width="2"/>
+        <line x1="45" y1="86" x2="45" y2="78" stroke="#1a3a40" stroke-width="2"/>
+        <line x1="4"  y1="45" x2="12" y2="45" stroke="#1a3a40" stroke-width="2"/>
+      </svg>
+      <div id="coverage-pct-label">0%</div>
+    </div>
+    <div id="coverage-ring-label">COVERAGE</div>
+  </div>
+
+  <!-- Best run -->
+  <div id="best-coverage">
+    BEST<br><strong id="best-pct">0%</strong>
+  </div>
+
+  <!-- Mini road map (top left, inside tron hud) -->
+  <div id="minimap-wrap">
+    <canvas id="minimap" width="140" height="140"></canvas>
+    <div id="minimap-label">ROAD MAP</div>
+  </div>
+
+  <div id="turn-flash"></div>
+  <div id="jump-flash"></div>
+  <div id="tron-hint">← → TURN &nbsp;|&nbsp; ↑ SWIPE UP — JUMP</div>
+  <div id="turn-controls">
+    <div class="turn-btn" id="btn-left"  onpointerdown="tronTurn('left')" >◀</div>
+    <div id="btn-jump" onpointerdown="tronJump()" title="Jump to nearest road">
+      ↑
+      <svg id="jump-cooldown-svg" viewBox="0 0 56 56">
+        <circle id="jump-cd-arc" cx="28" cy="28" r="25"
+          fill="none" stroke="rgba(245,196,0,0.5)" stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-dasharray="157" stroke-dashoffset="157"
+          transform="rotate(-90 28 28)"/>
+      </svg>
+    </div>
+    <div class="turn-btn" id="btn-right" onpointerdown="tronTurn('right')">▶</div>
+  </div>
+</div>
+
+<!-- Game Over -->
+<div id="game-over">
+  <h1>DEREZZED</h1>
+  <div class="go-sub">END OF LINE</div>
+  <div style="display:flex;gap:48px;margin-bottom:32px;text-align:center;">
+    <div>
+      <div style="font-size:0.5rem;letter-spacing:0.3em;color:var(--muted);margin-bottom:4px;">TIME</div>
+      <div style="font-family:'Orbitron',sans-serif;font-size:1.1rem;color:var(--muted)" id="go-time">0s</div>
+    </div>
+    <div>
+      <div style="font-size:0.5rem;letter-spacing:0.3em;color:var(--muted);margin-bottom:4px;">DISTANCE</div>
+      <div style="font-family:'Orbitron',sans-serif;font-size:1.1rem;color:var(--accent3)" id="go-distance">0 m</div>
+    </div>
+    <div>
+      <div style="font-size:0.5rem;letter-spacing:0.3em;color:var(--muted);margin-bottom:4px;">COVERAGE</div>
+      <div style="font-family:'Orbitron',sans-serif;font-size:1.1rem;color:var(--accent)" id="go-coverage">0%</div>
+    </div>
+    <div>
+      <div style="font-size:0.5rem;letter-spacing:0.3em;color:var(--muted);margin-bottom:4px;">BEST EVER</div>
+      <div style="font-family:'Orbitron',sans-serif;font-size:1.1rem;color:var(--accent2)" id="go-best">0%</div>
+    </div>
+  </div>
+  <button class="go-btn" onclick="startTronMode()">▶ SAME MAP — PLAY AGAIN</button>
+  <button class="go-btn" onclick="replayNewMap()">⟳ NEW MAP — PLAY</button>
+  <button class="go-btn" onclick="exitTronMode()" style="border-color:var(--muted);color:var(--muted)">◎ EXIT TO ORBIT</button>
+</div>
+
+<!-- Bad map overlay -->
+<div id="bad-map-overlay">
+  <h2>⚠ UNPLAYABLE MAP</h2>
+  <div class="bm-sub">Too many disconnected road segments.<br>Finding a better city...</div>
+  <div class="bm-count" id="bm-hop-count"></div>
+  <div id="bad-map-reload-bar-wrap">
+    <div id="bad-map-reload-bar"></div>
+  </div>
+  <div id="bad-map-reload-label">LOADING NEW MAP IN <span id="bm-countdown">3</span>s</div>
+  <button class="bm-btn" onclick="skipBadMapWait()">RELOAD NOW</button>
+</div>
+
+</body>
+</html>
