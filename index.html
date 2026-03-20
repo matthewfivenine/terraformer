@@ -122,6 +122,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  #location-badge { display: none !important; }
   #coord-text { display: none; }
 
   #status-bar {
@@ -522,7 +523,7 @@
   #coverage-svg { display: none; }
   #coverage-pct-label {
     font-family: 'Orbitron', sans-serif;
-    font-size: 1.8rem; font-weight: 700;
+    font-size: clamp(1.2rem, 5vw, 1.8rem); font-weight: 700;
     color: var(--accent);
     text-shadow: 0 0 16px var(--accent);
     line-height: 1;
@@ -698,30 +699,36 @@
   /* ── LANDMARK HUD (in-game counter) ── */
   #landmark-hud {
     position: absolute;
-    top: 108px;             /* below the score number */
-    left: 28px;
+    top: 58px;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
     pointer-events: none;
+    background: rgba(2,6,8,0.5);
+    border: 1px solid var(--dim);
+    border-radius: 4px;
+    padding: 4px 12px;
+    white-space: nowrap;
   }
-  #landmark-hud-label { font-size: 0.48rem; letter-spacing: 0.3em; color: var(--muted); }
+  #landmark-hud-label { font-size: 0.44rem; letter-spacing: 0.25em; color: var(--muted); }
   #landmark-count {
     font-family: 'Orbitron', sans-serif;
-    font-size: clamp(1rem, 4vw, 1.4rem); font-weight: 700;
+    font-size: 1.1rem; font-weight: 700;
     color: var(--accent3);
-    text-shadow: 0 0 14px var(--accent3);
+    text-shadow: 0 0 12px var(--accent3);
     line-height: 1;
   }
   #landmark-pts {
-    font-size: 0.52rem; letter-spacing: 0.12em; color: var(--accent3);
+    font-size: 0.48rem; letter-spacing: 0.1em; color: var(--accent3);
   }
 
   /* ── MULTIPLIER FLASH ── */
   #multiplier-badge {
     position: absolute;
-    top: 164px; left: 28px;
+    top: 100px; left: 50%; transform: translateX(-50%);
     font-family: 'Orbitron', sans-serif;
     font-size: 0.75rem; font-weight: 700;
     color: #fff;
@@ -1245,16 +1252,39 @@ async function fetchOSM(lat, lon, radius = 0.008) {
     out body;
   `;
   const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-  const resp = await fetch(url);
+  const resp = await fetch(url, { cache: 'no-store' });
   if (!resp.ok) throw new Error('Overpass API error');
   return resp.json();
 }
 
 // ─── REVERSE GEOCODE ─────────────────────────────────────────────────────────
+const PRESET_NAMES = {
+  '51.5074,-0.1278':    'London, UK',
+  '48.8566,2.3522':     'Paris, France',
+  '35.6762,139.6503':   'Tokyo, Japan',
+  '37.7749,-122.4194':  'San Francisco, USA',
+  '52.52,13.405':       'Berlin, Germany',
+  '41.9028,12.4964':    'Rome, Italy',
+  '55.7558,37.6176':    'Moscow, Russia',
+  '-33.8688,151.2093':  'Sydney, Australia',
+  '43.2965,5.3698':     'Marseille, France',
+  '37.9838,23.7275':    'Athens, Greece',
+  '-22.9068,-43.1729':  'Rio de Janeiro, Brazil',
+  '1.3521,103.8198':    'Singapore',
+  '21.3069,-157.8583':  'Honolulu, Hawaii',
+  '35.0116,135.7681':   'Kyoto, Japan',
+  '50.0755,14.4378':    'Prague, Czech Republic',
+  '47.4979,19.0402':    'Budapest, Hungary',
+  '45.4654,9.1859':     'Milan, Italy',
+};
+
 async function reverseGeocode(lat, lon) {
+  // Check known presets first — avoids Nominatim rate limits
+  const key = `${lat},${lon}`;
+  if (PRESET_NAMES[key]) return PRESET_NAMES[key];
   try {
     const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`, {
-      headers: { 'Accept-Language': 'en' }
+      headers: { 'Accept-Language': 'en', 'User-Agent': 'Terraformer/1.0' }
     });
     const data = await resp.json();
     return data.display_name ? data.display_name.split(',').slice(0, 3).join(', ') : `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
@@ -1266,31 +1296,33 @@ async function reverseGeocode(lat, lon) {
 // ─── RANDOM LOCATIONS ────────────────────────────────────────────────────────
 const PRESETS = {
   city: [
-    [51.5074, -0.1278],   // London
-    [48.8566, 2.3522],    // Paris
-    [40.7128, -74.0060],  // NYC
-    [35.6762, 139.6503],  // Tokyo
+    [51.5074,  -0.1278],  // London
+    [48.8566,   2.3522],  // Paris
+    [35.6762,  139.6503], // Tokyo
     [37.7749, -122.4194], // San Francisco
-    [52.5200, 13.4050],   // Berlin
-    [41.9028, 12.4964],   // Rome
-    [55.7558, 37.6176],   // Moscow
+    [52.5200,  13.4050],  // Berlin
+    [41.9028,  12.4964],  // Rome
+    [55.7558,  37.6176],  // Moscow
     [-33.8688, 151.2093], // Sydney
-    [25.2048, 55.2708],   // Dubai
+    [43.2965,   5.3698],  // Marseille
+    [37.9838,  23.7275],  // Athens
+    [-22.9068, -43.1729], // Rio de Janeiro
+    [1.3521,  103.8198],  // Singapore
+    [21.3069, -157.8583], // Honolulu
+    [35.0116,  135.7681], // Kyoto
+    [50.0755,  14.4378],  // Prague
+    [47.4979,  19.0402],  // Budapest
   ],
   coast: [
-    [36.1408, -5.3536],   // Gibraltar
-    [43.2965, 5.3698],    // Marseille
-    [37.9838, 23.7275],   // Athens coast
+    [43.2965,   5.3698],  // Marseille
+    [37.9838,  23.7275],  // Athens
     [-22.9068, -43.1729], // Rio
-    [1.3521, 103.8198],   // Singapore
+    [1.3521,  103.8198],  // Singapore
     [21.3069, -157.8583], // Honolulu
   ],
   rural: [
-    [47.5576, 7.5906],    // Swiss countryside
-    [45.4654, 9.1859],    // Milan outskirts
-    [51.7520, -1.2577],   // Oxford countryside
-    [43.7102, 7.2620],    // Monaco hills
-    [35.0116, 135.7681],  // Kyoto rural
+    [35.0116,  135.7681], // Kyoto
+    [45.4654,   9.1859],  // Milan outskirts
   ]
 };
 
@@ -1397,7 +1429,11 @@ async function loadRandomLocation() {
 
 async function loadPreset(type) {
   const list = PRESETS[type];
-  const [lat, lon] = list[Math.floor(Math.random() * list.length)];
+  let idx;
+  do {
+    idx = Math.floor(Math.random() * list.length);
+  } while (list.length > 1 && list[idx][0] === currentLat && list[idx][1] === currentLon);
+  const [lat, lon] = list[idx];
   await loadLocation(lat, lon);
 }
 
@@ -1894,6 +1930,8 @@ function exitTronMode() {
   showPlayBtn(true);
   document.getElementById('controls').classList.remove('tron-hidden');
   document.getElementById('speed-vignette').classList.remove('on');
+  const _lb2 = document.getElementById('location-badge');
+  if (_lb2) _lb2.style.display = '';
   currentView = 'orbit';
   document.getElementById('mode-display').textContent = 'ORBIT';
   if (tronTrailMesh) { scene.remove(tronTrailMesh); tronTrailMesh = null; }
@@ -3164,9 +3202,9 @@ function toggleSound() {
         <line x1="45" y1="86" x2="45" y2="78" stroke="#1a3a40" stroke-width="2"/>
         <line x1="4"  y1="45" x2="12" y2="45" stroke="#1a3a40" stroke-width="2"/>
       </svg>
+      <div id="coverage-ring-label">COVERAGE</div>
       <div id="coverage-pct-label">0%</div>
     </div>
-    <div id="coverage-ring-label">COVERAGE</div>
   </div>
 
   <!-- Best run -->
