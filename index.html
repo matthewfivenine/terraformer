@@ -708,6 +708,129 @@
     from { box-shadow: 0 0 12px rgba(255,255,255,0.25), 0 0 4px rgba(0,245,196,0.2); }
     to   { box-shadow: 0 0 28px rgba(255,255,255,0.55), 0 0 12px rgba(0,245,196,0.4); }
   }
+
+  /* ── LANDMARK HUD (in-game counter) ── */
+  #landmark-hud {
+    position: absolute;
+    top: 58px;
+    right: 110px;           /* left of coverage ring */
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    pointer-events: none;
+  }
+  #landmark-hud-label { font-size: 0.48rem; letter-spacing: 0.3em; color: var(--muted); }
+  #landmark-count {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.6rem; font-weight: 700;
+    color: var(--accent3);
+    text-shadow: 0 0 18px var(--accent3);
+    line-height: 1;
+  }
+  #landmark-pts {
+    font-size: 0.55rem; letter-spacing: 0.15em; color: var(--accent3);
+  }
+
+  /* ── MULTIPLIER FLASH ── */
+  #multiplier-badge {
+    position: absolute;
+    top: 100px; right: 110px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.75rem; font-weight: 700;
+    color: #fff;
+    background: rgba(245,196,0,0.18);
+    border: 1px solid var(--accent3);
+    padding: 3px 10px;
+    border-radius: 3px;
+    letter-spacing: 0.15em;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  #multiplier-badge.show { opacity: 1; }
+
+  /* ── PICKUP LABEL ── */
+  #pickup-label {
+    position: absolute;
+    left: 50%; top: 42%;
+    transform: translateX(-50%);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: clamp(0.7rem, 2.5vw, 1rem);
+    letter-spacing: 0.15em;
+    color: var(--accent3);
+    text-shadow: 0 0 16px var(--accent3);
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    max-width: 80vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #pickup-label.show { opacity: 1; }
+  #pickup-pts {
+    display: block;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.65rem;
+    color: #fff;
+    margin-top: 2px;
+    letter-spacing: 0.2em;
+  }
+
+  /* ── GAME OVER LANDMARK LIST ── */
+  #go-landmarks-section {
+    width: 100%;
+    max-width: 340px;
+    margin: 0 auto 24px;
+    text-align: left;
+  }
+  #go-landmarks-title {
+    font-size: 0.5rem;
+    letter-spacing: 0.3em;
+    color: var(--muted);
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  #go-landmarks-list {
+    max-height: 160px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding-right: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--dim) transparent;
+  }
+  .go-landmark-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(245,196,0,0.05);
+    border-left: 2px solid var(--accent3);
+    padding: 4px 10px;
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    color: var(--text);
+  }
+  .go-landmark-item .lm-cat {
+    font-size: 0.5rem;
+    color: var(--muted);
+    margin-right: 8px;
+  }
+  .go-landmark-item .lm-pts {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    color: var(--accent3);
+    flex-shrink: 0;
+  }
+  .go-landmark-empty {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.58rem;
+    padding: 12px 0;
+  }
 </style>
 </head>
 <body>
@@ -832,7 +955,7 @@ renderer.shadowMap.enabled = true;
 renderer.setClearColor(0x020608);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x020608, 800, 3000);
+scene.fog = new THREE.Fog(0x020608, 400, 1800);
 
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.5, 8000);
 
@@ -985,6 +1108,16 @@ function buildPolygonGeometry(nodes, nodeMap, height, yBase) {
 }
 
 // ─── RENDER OSM DATA ─────────────────────────────────────────────────────────
+// Shared building material palette (created once, reused across buildings)
+const _buildingMats = Array.from({ length: 8 }, (_, i) => {
+  const hue = 0.44 + i * 0.015;
+  return new THREE.MeshLambertMaterial({
+    color: new THREE.Color().setHSL(hue, 0.9, 0.38 + i * 0.02),
+    emissive: new THREE.Color().setHSL(hue, 0.8, 0.08),
+    wireframe: true
+  });
+});
+
 function renderOSMData(data) {
   // Clear old map
   while (mapGroup.children.length) mapGroup.remove(mapGroup.children[0]);
@@ -1063,13 +1196,9 @@ function renderOSMData(data) {
     const h = Math.max(cls.height || 10, 3);
     const geo = buildPolygonGeometry(el.nodes, nodeMap, h, 0);
     if (geo) {
-      // Random slight color variation per building
-      const hue = 0.48 + (Math.random() - 0.5) * 0.1;
-      const mat = new THREE.MeshLambertMaterial({
-        color: new THREE.Color().setHSL(hue, 0.9, 0.4 + Math.random() * 0.2),
-        emissive: new THREE.Color().setHSL(hue, 0.8, 0.1),
-        wireframe: wireframeMode
-      });
+      // Use shared material from a small palette — avoids per-building allocations
+      const _bi = Math.floor(Math.random() * _buildingMats.length);
+      const mat = _buildingMats[_bi];
       const m = new THREE.Mesh(geo, mat);
       m.receiveShadow = true;
       m.castShadow = true;
@@ -1090,6 +1219,9 @@ function renderOSMData(data) {
 
   // Build road graph for TRON mode
   buildRoadGraph(roads, nodeMap);
+
+  // Parse landmark POIs
+  parseLandmarks(data, nodeMap);
 }
 
 function buildFlyPath(roads, nodeMap) {
@@ -1110,7 +1242,7 @@ async function fetchOSM(lat, lon, radius = 0.008) {
   const b = radius;
   const bbox = `${lat - b},${lon - b},${lat + b},${lon + b}`;
   const query = `
-    [out:json][timeout:30];
+    [out:json][timeout:35];
     (
       way["highway"](${bbox});
       way["building"](${bbox});
@@ -1118,6 +1250,10 @@ async function fetchOSM(lat, lon, radius = 0.008) {
       way["landuse"](${bbox});
       way["waterway"](${bbox});
       way["railway"](${bbox});
+      node["historic"](${bbox});
+      node["tourism"](${bbox});
+      node["amenity"~"place_of_worship|theatre|cinema|library|museum|arts_centre|community_centre|hospital|university|fountain|townhall"](${bbox});
+      node["leisure"~"park|stadium|sports_centre"](${bbox});
     );
     (._;>;);
     out body;
@@ -1458,10 +1594,9 @@ function updateHUD(dt) {
 // ─── TOGGLE FUNCTIONS ────────────────────────────────────────────────────────
 function toggleWireframe() {
   wireframeMode = !wireframeMode;
+  _buildingMats.forEach(m => m.wireframe = wireframeMode);
   mapGroup.traverse(obj => {
-    if (obj.isMesh && obj.material) {
-      obj.material.wireframe = wireframeMode;
-    }
+    if (obj.isMesh && obj.material) obj.material.wireframe = wireframeMode;
   });
 }
 
@@ -1706,11 +1841,15 @@ function startTronMode() {
   tronSpeed = 28;
 
   // Remove old trail/head meshes
-  if (tronTrailMesh) { scene.remove(tronTrailMesh); tronTrailMesh = null; }
-  if (tronHeadMesh) { scene.remove(tronHeadMesh); tronHeadMesh = null; }
+  if (tronTrailMesh) { tronTrailMesh.geometry.dispose(); scene.remove(tronTrailMesh); tronTrailMesh = null; }
+  tronTrail = [];
+  _trailFrameSkip = 0;
+  _trailRebuildTick = 0;
+  if (tronHeadMesh)  { scene.remove(tronHeadMesh); tronHeadMesh = null; }
 
-  // Reset coverage + hop detection + jump
+  // Reset coverage + hop detection + jump + landmarks
   resetCoverage();
+  resetLandmarks();
   initMinimap();
   hopTimestamps = [];
   badMapActive = false;
@@ -1796,6 +1935,7 @@ function gameOver() {
   if (goD) goD.textContent = tronScore + ' m';
   if (goC) goC.textContent = finalPct.toFixed(1) + '%';
   if (goB) goB.textContent = bestCoverage.toFixed(1) + '%';
+  populateLandmarkEndScreen();
 
   showGameOver(true);
   // Shake effect
@@ -1886,33 +2026,47 @@ function chooseNeighbor(fromId, currentDir, turn) {
 }
 
 // ── TRAIL RENDERING ──────────────────────────────────────────
-function updateTrail(newPos) {
-  tronTrail.push(newPos.clone());
-  if (tronTrail.length > 600) tronTrail.shift();
+// TubeGeometry rebuilt every N frames — thick snake look, perf-balanced
+const TRAIL_MAX   = 200;   // max points kept
+const TRAIL_REBUILD_EVERY = 4; // frames between geometry rebuilds
+let _trailFrameSkip   = 0;
+let _trailRebuildTick = 0;
+const _trailMat = new THREE.MeshBasicMaterial({ color: 0x00f5c4, transparent: true, opacity: 0.82 });
 
-  // ── Snake head: same radius as trail tube, distinct color ────
+function updateTrail(newPos) {
+  // Add point every 2 frames (subsampling keeps trail smooth but short)
+  _trailFrameSkip++;
+  if (_trailFrameSkip % 2 === 0) {
+    tronTrail.push(newPos.clone());
+    if (tronTrail.length > TRAIL_MAX) tronTrail.shift();
+  }
+
+  // ── Snake head ───────────────────────────────────────────────
   if (!tronHeadMesh) {
-    const headGeo = new THREE.SphereGeometry(0.7, 8, 6);
+    const headGeo = new THREE.SphereGeometry(0.7, 6, 4);
     const headMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     tronHeadMesh = new THREE.Mesh(headGeo, headMat);
     tronHeadMesh.renderOrder = 999;
     scene.add(tronHeadMesh);
   }
   tronHeadMesh.position.copy(newPos);
-
-  // Cycle: white → hot-pink → back — fast enough to be visible, slow enough not to strobe
   const _ht = (Date.now() % 800) / 800;
   const _hr = 0.5 + 0.5 * Math.sin(_ht * Math.PI * 2);
   tronHeadMesh.material.color.setRGB(1.0, 0.15 + 0.65 * (1 - _hr), 0.15 + 0.85 * _hr);
 
   if (tronTrail.length < 2) return;
 
-  if (tronTrailMesh) scene.remove(tronTrailMesh);
+  // Rebuild tube only every N frames to save GPU
+  _trailRebuildTick++;
+  if (_trailRebuildTick % TRAIL_REBUILD_EVERY !== 0) return;
+
+  if (tronTrailMesh) { scene.remove(tronTrailMesh); tronTrailMesh = null; }
   try {
     const curve = new THREE.CatmullRomCurve3(tronTrail);
-    const geo = new THREE.TubeGeometry(curve, Math.min(tronTrail.length * 2, 400), 0.7, 4, false);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x00f5c4, transparent: true, opacity: 0.75 });
-    tronTrailMesh = new THREE.Mesh(geo, mat);
+    const segments = Math.min(tronTrail.length * 2, 200);
+    const geo = new THREE.TubeGeometry(curve, segments, 0.7, 5, false);
+    tronTrailMesh = new THREE.Mesh(geo, _trailMat);
+    tronTrailMesh.frustumCulled = false;
     scene.add(tronTrailMesh);
   } catch(e) {}
 }
@@ -2023,8 +2177,11 @@ function updateTron(dt) {
   // Update trail
   updateTrail(pos);
 
+  // Check landmark collection (every 3 frames)
+  if (landmarkNodes.length && Math.floor(tronScore) % 3 === 0) checkLandmarkCollection(pos);
+
   // Redraw minimap player dot
-  if (Math.floor(tronScore) % 18 === 0) drawMinimap();
+  if (Math.floor(tronScore) % 45 === 0) drawMinimap();
 
   // Update button states every ~20 score units
   if (Math.floor(tronScore) % 20 === 0) { updateJumpReadiness(); updateArrowHighlights(); }
@@ -2287,6 +2444,248 @@ function drawMinimap() {
   }
 }
 
+
+// ═══════════════════════════════════════════════════════════
+// LANDMARK SYSTEM
+// ═══════════════════════════════════════════════════════════
+
+// Category config: tag key -> { values, label, icon, points, color }
+const LANDMARK_CATEGORIES = {
+  historic:  { label: 'HISTORIC',  icon: '🏛', points: 150, color: 0xffaa00 },
+  tourism:   { label: 'TOURISM',   icon: '📍', points: 100, color: 0xff6600 },
+  amenity:   { label: 'AMENITY',   icon: '⬡',  points:  50, color: 0x00c4ff },
+  leisure:   { label: 'LEISURE',   icon: '🌿', points:  40, color: 0x00aa55 },
+};
+
+// Interesting amenity subtypes (filter out noise)
+const AMENITY_WHITELIST = new Set([
+  'place_of_worship','theatre','cinema','library','museum','arts_centre',
+  'community_centre','hospital','university','college','school',
+  'fountain','clock','bench','market_place','townhall'
+]);
+
+// Tourism subtypes
+const TOURISM_WHITELIST = new Set([
+  'attraction','artwork','gallery','museum','monument','memorial',
+  'viewpoint','zoo','theme_park','aquarium','castle','ruins','hotel','hostel'
+]);
+
+let landmarkNodes   = [];   // { id, pos, name, cat, icon, points, mesh, collected }
+let collectedLandmarks = []; // { name, cat, icon, points } — for end screen
+let landmarkScore   = 0;
+let multiplierActive = false;
+let multiplierTimer  = null;
+const COLLECT_RADIUS = 22;  // world units
+
+// ── Parse landmark nodes from OSM data ───────────────────────
+function parseLandmarks(data, nodeMap) {
+  landmarkNodes = [];
+  for (const el of data.elements) {
+    if (el.type !== 'node' || !el.tags) continue;
+    const tags = el.tags;
+    let cat = null, name = null, icon = null, points = 0, color = 0;
+
+    if (tags.historic) {
+      cat = 'historic'; icon = LANDMARK_CATEGORIES.historic.icon;
+      points = LANDMARK_CATEGORIES.historic.points;
+      color = LANDMARK_CATEGORIES.historic.color;
+      name = tags.name || tags.historic;
+    } else if (tags.tourism && TOURISM_WHITELIST.has(tags.tourism)) {
+      cat = 'tourism'; icon = LANDMARK_CATEGORIES.tourism.icon;
+      points = LANDMARK_CATEGORIES.tourism.points;
+      color = LANDMARK_CATEGORIES.tourism.color;
+      name = tags.name || tags.tourism;
+    } else if (tags.amenity && AMENITY_WHITELIST.has(tags.amenity)) {
+      cat = 'amenity'; icon = LANDMARK_CATEGORIES.amenity.icon;
+      points = LANDMARK_CATEGORIES.amenity.points;
+      color = LANDMARK_CATEGORIES.amenity.color;
+      name = tags.name || tags.amenity;
+    } else if (tags.leisure && (tags.leisure === 'park' || tags.leisure === 'stadium' || tags.leisure === 'sports_centre')) {
+      cat = 'leisure'; icon = LANDMARK_CATEGORIES.leisure.icon;
+      points = LANDMARK_CATEGORIES.leisure.points;
+      color = LANDMARK_CATEGORIES.leisure.color;
+      name = tags.name || tags.leisure;
+    }
+
+    if (!cat || !name || typeof name !== 'string') continue;
+
+    const p = latLonToXZ(el.lat, el.lon);
+    const pos = new THREE.Vector3(p.x, 5, p.z);
+
+    landmarkNodes.push({
+      id: el.id, pos, cat, icon, points, color,
+      name: name.toUpperCase().substring(0, 40),
+      mesh: null, collected: false
+    });
+  }
+  console.log('Landmarks parsed:', landmarkNodes.length);
+}
+
+// ── Spawn 3D markers for landmarks ───────────────────────────
+function spawnLandmarkMarkers() {
+  // Clear old
+  for (const lm of landmarkNodes) {
+    if (lm.mesh) { scene.remove(lm.mesh); lm.mesh = null; }
+  }
+
+  for (const lm of landmarkNodes) {
+    // Outer pulsing ring (torus)
+    const ringGeo = new THREE.TorusGeometry(3.5, 0.4, 6, 16);
+    const ringMat = new THREE.MeshBasicMaterial({ color: lm.color, transparent: true, opacity: 0.85 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = Math.PI / 2;
+
+    // Inner sphere
+    const dotGeo = new THREE.SphereGeometry(1.2, 8, 6);
+    const dotMat = new THREE.MeshBasicMaterial({ color: lm.color });
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+
+    // Vertical stem
+    const stemGeo = new THREE.CylinderGeometry(0.15, 0.15, 8, 4);
+    const stemMat = new THREE.MeshBasicMaterial({ color: lm.color, transparent: true, opacity: 0.5 });
+    const stem = new THREE.Mesh(stemGeo, stemMat);
+    stem.position.y = -4;
+
+    const group = new THREE.Group();
+    group.add(ring); group.add(dot); group.add(stem);
+    group.position.copy(lm.pos);
+    group.position.y = 9;
+    group.renderOrder = 998;
+    scene.add(group);
+    lm.mesh = group;
+  }
+}
+
+// ── Animate markers (called in render loop) ──────────────────
+function animateLandmarks(now) {
+  const camPos = camera.position;
+  for (const lm of landmarkNodes) {
+    if (!lm.mesh || lm.collected) continue;
+    // Skip animation if landmark is far from camera (> 400 units)
+    const dx = lm.pos.x - camPos.x, dz = lm.pos.z - camPos.z;
+    if (dx*dx + dz*dz > 160000) continue;
+    lm.mesh.rotation.y = now * 0.001;
+    lm.mesh.position.y = lm.pos.y + 9 + Math.sin(now * 0.002 + (lm.id % 100)) * 1.5;
+    const osc = 0.5 + 0.5 * Math.sin(now * 0.003 + (lm.id % 100));
+    if (lm.mesh.children[0]) lm.mesh.children[0].material.opacity = 0.5 + 0.45 * osc;
+  }
+}
+
+// ── Collect a landmark ───────────────────────────────────────
+function collectLandmark(lm) {
+  lm.collected = true;
+
+  // Burst animation — scale up then hide
+  if (lm.mesh) {
+    const mesh = lm.mesh;
+    let s = 1, burst = setInterval(() => {
+      s += 0.18;
+      mesh.scale.setScalar(s);
+      mesh.children.forEach(c => { if (c.material) c.material.opacity = Math.max(0, c.material.opacity - 0.15); });
+      if (s > 2.5) { clearInterval(burst); scene.remove(mesh); lm.mesh = null; }
+    }, 30);
+  }
+
+  // Points: base × 1.5 if multiplier active
+  const pts = multiplierActive ? Math.round(lm.points * 1.5) : lm.points;
+  landmarkScore += pts;
+  tronScore += pts;
+
+  collectedLandmarks.push({ name: lm.name, cat: lm.cat, icon: lm.icon, points: pts });
+
+  // Update HUD
+  const countEl = document.getElementById('landmark-count');
+  const ptsEl   = document.getElementById('landmark-pts');
+  if (countEl) countEl.textContent = collectedLandmarks.length;
+  if (ptsEl)   ptsEl.textContent   = '+' + landmarkScore + ' pts';
+
+  // Show pickup label
+  showPickupLabel(lm.icon + ' ' + lm.name, '+' + pts + ' PTS');
+
+  // Trigger multiplier (1.5× for 5s)
+  triggerMultiplier();
+
+  // Sound: bright ascending chirp, pitch by category
+  const pitchMap = { historic: 880, tourism: 660, amenity: 523, leisure: 440 };
+  const freq = pitchMap[lm.cat] || 660;
+  sfxTone(freq, 'triangle', 0.06, 0.3, true);
+  setTimeout(() => sfxTone(freq * 1.5, 'triangle', 0.12, 0.25, true), 60);
+  setTimeout(() => sfxTone(freq * 2, 'triangle', 0.18, 0.2, true), 130);
+}
+
+function showPickupLabel(name, pts) {
+  const el = document.getElementById('pickup-label');
+  const nm = document.getElementById('pickup-name');
+  const pt = document.getElementById('pickup-pts');
+  if (!el || !nm || !pt) return;
+  nm.textContent = name;
+  pt.textContent = pts;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+function triggerMultiplier() {
+  multiplierActive = true;
+  const badge = document.getElementById('multiplier-badge');
+  if (badge) badge.classList.add('show');
+  if (multiplierTimer) clearTimeout(multiplierTimer);
+  multiplierTimer = setTimeout(() => {
+    multiplierActive = false;
+    if (badge) badge.classList.remove('show');
+  }, 5000);
+}
+
+// ── Check proximity each frame ───────────────────────────────
+function checkLandmarkCollection(playerPos) {
+  for (const lm of landmarkNodes) {
+    if (lm.collected) continue;
+    if (playerPos.distanceTo(lm.pos) < COLLECT_RADIUS) {
+      collectLandmark(lm);
+    }
+  }
+}
+
+// ── Reset on new game ────────────────────────────────────────
+function resetLandmarks() {
+  // Remove old meshes
+  for (const lm of landmarkNodes) {
+    if (lm.mesh) { scene.remove(lm.mesh); lm.mesh = null; }
+  }
+  collectedLandmarks = [];
+  landmarkScore = 0;
+  multiplierActive = false;
+  if (multiplierTimer) clearTimeout(multiplierTimer);
+  const countEl = document.getElementById('landmark-count');
+  const ptsEl   = document.getElementById('landmark-pts');
+  const badge   = document.getElementById('multiplier-badge');
+  if (countEl) countEl.textContent = '0';
+  if (ptsEl)   ptsEl.textContent   = '+0 pts';
+  if (badge)   badge.classList.remove('show');
+  // Re-mark all as uncollected and respawn markers
+  for (const lm of landmarkNodes) lm.collected = false;
+  spawnLandmarkMarkers();
+}
+
+// ── Populate end-screen list ─────────────────────────────────
+function populateLandmarkEndScreen() {
+  const list = document.getElementById('go-landmarks-list');
+  const countEl = document.getElementById('go-lm-count');
+  if (!list) return;
+  if (countEl) countEl.textContent = collectedLandmarks.length;
+
+  if (!collectedLandmarks.length) {
+    list.innerHTML = '<div class="go-landmark-empty">No landmarks collected this run</div>';
+    return;
+  }
+  list.innerHTML = collectedLandmarks.map(lm =>
+    `<div class="go-landmark-item">
+      <span>${lm.icon} <span class="lm-cat">[${lm.cat.toUpperCase()}]</span>${lm.name}</span>
+      <span class="lm-pts">+${lm.points}</span>
+    </div>`
+  ).join('');
+}
+
 // ─── RENDER LOOP ──────────────────────────────────────────────────────────────
 function animate() {
   requestAnimationFrame(animate);
@@ -2308,6 +2707,9 @@ function animate() {
 
   // Pulse point light
   pointLight1.intensity = 1.0 + Math.sin(now * 0.002) * 0.3;
+
+  // Animate landmark markers
+  if (tronActive && landmarkNodes.length) animateLandmarks(now);
 
   updateHUD(dt);
   renderer.render(scene, camera);
@@ -2792,6 +3194,17 @@ function toggleSound() {
     <div id="minimap-label">ROAD MAP</div>
   </div>
 
+  <!-- Landmark counter -->
+  <div id="landmark-hud">
+    <div id="landmark-hud-label">LANDMARKS</div>
+    <div id="landmark-count">0</div>
+    <div id="landmark-pts">+0 pts</div>
+  </div>
+  <div id="multiplier-badge">✕1.5 BONUS</div>
+
+  <!-- Pickup label -->
+  <div id="pickup-label"><span id="pickup-name"></span><span id="pickup-pts"></span></div>
+
   <div id="turn-flash"></div>
   <div id="jump-flash"></div>
   <div id="tron-hint">← → TURN &nbsp;|&nbsp; ↑ SWIPE UP — JUMP</div>
@@ -2832,6 +3245,15 @@ function toggleSound() {
       <div style="font-size:0.5rem;letter-spacing:0.3em;color:var(--muted);margin-bottom:4px;">BEST EVER</div>
       <div style="font-family:'Orbitron',sans-serif;font-size:1.1rem;color:var(--accent2)" id="go-best">0%</div>
     </div>
+    <div>
+      <div style="font-size:0.5rem;letter-spacing:0.3em;color:var(--muted);margin-bottom:4px;">LANDMARKS</div>
+      <div style="font-family:'Orbitron',sans-serif;font-size:1.1rem;color:var(--accent3)" id="go-lm-count">0</div>
+    </div>
+  </div>
+  <!-- Collected landmarks -->
+  <div id="go-landmarks-section">
+    <div id="go-landmarks-title">LANDMARKS COLLECTED</div>
+    <div id="go-landmarks-list"><div class="go-landmark-empty">None collected</div></div>
   </div>
   <button class="go-btn" onclick="startTronMode()">▶ SAME MAP — PLAY AGAIN</button>
   <button class="go-btn" onclick="replayNewMap()">⟳ NEW MAP — PLAY</button>
